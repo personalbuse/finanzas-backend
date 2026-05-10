@@ -1,3 +1,4 @@
+import re
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from decimal import Decimal
@@ -7,8 +8,27 @@ from datetime import datetime
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
-    password: str = Field(..., min_length=6, max_length=100)
+    password: str = Field(..., min_length=12, max_length=100)
     initial_balance: Optional[float] = Field(default=10000.00, ge=1000)
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        errors = []
+        if len(v) < 12:
+            errors.append('12 caracteres')
+        if not re.search(r'[A-Z]', v):
+            errors.append('una mayúscula')
+        if not re.search(r'[a-z]', v):
+            errors.append('una minúscula')
+        if not re.search(r'\d', v):
+            errors.append('un número')
+        if not re.search(r'[@$!%*?&]', v):
+            errors.append('un símbolo')
+        
+        if errors:
+            raise ValueError(f'La contraseña debe tener: {", ".join(errors)}')
+        return v
 
 
 class UserResponse(BaseModel):
