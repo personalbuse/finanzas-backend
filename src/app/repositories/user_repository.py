@@ -73,3 +73,27 @@ async def get_all_users(db: AsyncSession, skip: int = 0, limit: int = 100) -> Li
     stmt = select(User).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def get_course_progress(db: AsyncSession, user_id: int) -> dict:
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        return {"completed_courses": 0, "bonus_earned": 0}
+    return {
+        "completed_courses": user.completed_courses,
+        "bonus_earned": user.completed_courses * 1000
+    }
+
+
+async def complete_module(db: AsyncSession, user_id: int) -> User:
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise CustomException(status_code=404, detail="Usuario no encontrado")
+    
+    if user.completed_courses < 3:
+        user.completed_courses += 1
+        user.current_balance = float(user.current_balance) + 1000
+    
+    await db.commit()
+    await db.refresh(user)
+    return user

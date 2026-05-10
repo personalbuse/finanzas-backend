@@ -133,6 +133,7 @@ async def register_verify(
             "email": user.email,
             "initial_balance": float(user.initial_balance),
             "current_balance": float(user.current_balance),
+            "completed_courses": user.completed_courses or 0,
             "created_at": str(user.created_at)
         }
     }
@@ -209,6 +210,7 @@ async def login(
             "email": user.email,
             "initial_balance": float(user.initial_balance),
             "current_balance": float(user.current_balance),
+            "completed_courses": user.completed_courses or 0,
             "created_at": str(user.created_at)
         }
     }

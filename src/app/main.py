@@ -56,6 +56,11 @@ def create_application() -> FastAPI:
         prefix="/api/v1", 
         tags=["portafolio"]
     )
+    app.include_router(
+        importlib.import_module("app.api.v1.learning").router, 
+        prefix="/api/v1", 
+        tags=["learning"]
+    )
     
     @app.get("/")
     async def root():

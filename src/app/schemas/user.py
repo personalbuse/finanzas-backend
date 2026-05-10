@@ -37,10 +37,16 @@ class UserResponse(BaseModel):
     email: str
     initial_balance: float
     current_balance: float
+    completed_courses: int = 0
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class CourseProgressResponse(BaseModel):
+    completed_courses: int
+    bonus_earned: int
 
 
 class Token(BaseModel):

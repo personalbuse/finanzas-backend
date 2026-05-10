@@ -15,6 +15,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     initial_balance = Column(Numeric(15, 2), default=10000.00)
     current_balance = Column(Numeric(15, 2), default=10000.00)
+    completed_courses = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
