@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Date, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, date
