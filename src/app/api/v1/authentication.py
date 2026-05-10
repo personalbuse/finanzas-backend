@@ -14,6 +14,7 @@ from app.services.auth_service import authenticate_user, create_access_token, ge
 from app.repositories.user_repository import create_user
 from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
+from app.services.redis_2fa_service import redis_2fa_service
 
 router = APIRouter()
 
@@ -21,19 +22,157 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
 
 
 @router.post(
-    "/register",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
+    "/register-init",
     tags=["autenticación"]
 )
 @limiter.limit(auth_rate_limit)
-async def register(
+async def register_init(
     request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    user = await create_user(db, user_data)
-    return user
+    stmt = select(User).where(
+        (User.username == user_data.username) | 
+        (User.email == user_data.email)
+    )
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        if existing.username == user_data.username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre de usuario ya está en uso"
+            )
+        if existing.email == user_data.email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El email ya está en uso"
+            )
+    
+    hashed_password = get_password_hash(user_data.password)
+    
+    saved = await redis_2fa_service.save_registration_data(
+        user_data.email,
+        user_data.username,
+        hashed_password
+    )
+    
+    if not saved:
+        raise HTTPException(
+            status_code=status.HTTP_500_BAD_REQUEST,
+            detail="Error al procesar el registro. Intenta de nuevo."
+        )
+    
+    try:
+        code = await redis_2fa_service.generate_and_save_code(user_data.email)
+        await email_service.send_verification_code(user_data.email, code)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_BAD_REQUEST,
+            detail=f"Error al enviar el código: {str(e)}"
+        )
+    
+    return {
+        "message": "Código de verificación enviado a tu correo",
+        "email": user_data.email
+    }
+
+
+@router.post(
+    "/register-verify",
+    tags=["autenticación"]
+)
+@limiter.limit(auth_rate_limit)
+async def register_verify(
+    request: Request,
+    email: str = Form(...),
+    code: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        await redis_2fa_service.verify_code(email, code)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    
+    reg_data = await redis_2fa_service.get_registration_data(email)
+    if not reg_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Datos de registro expirados. Por favor regístrate de nuevo."
+        )
+    
+    user = User(
+        username=reg_data["username"],
+        email=email,
+        hashed_password=reg_data["hashed_password"],
+        initial_balance=10000.00,
+        current_balance=10000.00
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    await redis_2fa_service.clear_registration_data(email)
+    
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username},
+        expires_delta=access_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "initial_balance": float(user.initial_balance),
+            "current_balance": float(user.current_balance),
+            "created_at": str(user.created_at)
+        }
+    }
+
+
+@router.post(
+    "/resend-code",
+    tags=["autenticación"]
+)
+@limiter.limit(auth_rate_limit)
+async def resend_code(
+    request: Request,
+    email: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(User).where(User.email == email)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El email ya está registrado"
+        )
+    
+    reg_data = await redis_2fa_service.get_registration_data(email)
+    if not reg_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay registro pendiente para este email. Por favor regístrate de nuevo."
+        )
+    
+    try:
+        code = await redis_2fa_service.generate_and_save_code(email)
+        await email_service.send_verification_code(email, code)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_BAD_REQUEST,
+            detail=f"Error al reenviar el código: {str(e)}"
+        )
+    
+    return {"message": "Nuevo código enviado a tu correo"}
 
 
 @router.post(
