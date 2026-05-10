@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 300
     REDIS_URL: str = ""
     RATE_LIMIT_PER_MINUTE: int = 60
+    CORS_ORIGINS: str = "*"
 
     model_config = SettingsConfigDict(
         env_file=str(env_path) if env_path.exists() else ".env",

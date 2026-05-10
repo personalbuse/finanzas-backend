@@ -27,12 +27,18 @@ def create_application() -> FastAPI:
     async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         return await rate_limit_exceeded_handler(request, exc)
     
+    cors_origins = ["*"]
+    if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
+        cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+        allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Authorization"],
+        max_age=3600,
     )
     
     app.include_router(
