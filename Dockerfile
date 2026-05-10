@@ -7,7 +7,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY src /app
+COPY src/app /app/app
+COPY src/db /app/db
+COPY src/models /app/models
+COPY src/schemas /app/schemas
+COPY src/services /app/services
+COPY src/utils /app/utils
 COPY alembic.ini /app/alembic.ini
 COPY alembic /app/alembic
 RUN python -c "import sys; print('Dependencies installed successfully')"
