@@ -68,3 +68,31 @@ class CacheData(Base):
     @classmethod
     def generate_key(cls, *parts):
         return ":".join(parts)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String(255), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    
+    user = relationship("User")
+
+
+class VerificationCode(Base):
+    __tablename__ = "verification_codes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(6), nullable=False)
+    code_type = Column(String(20), nullable=False)  # '2fa', 'email_verification'
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+    
+    user = relationship("User")

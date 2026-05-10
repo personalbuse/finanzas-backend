@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = ""
     RATE_LIMIT_PER_MINUTE: int = 60
     CORS_ORIGINS: str = "*"
+    RESEND_API_KEY: str = ""
+    FRONTEND_URL: str = "https://dabuma.site"
 
     model_config = SettingsConfigDict(
         env_file=str(env_path) if env_path.exists() else ".env",
