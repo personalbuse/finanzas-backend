@@ -73,3 +73,50 @@ async def convert_currency(
     async with ExchangeRateService() as service:
         converted = await service.convert_currency(amount, from_currency, to_currency, db)
         return converted
+
+
+@router.get(
+    "/exchange-rates/multi",
+    tags=["moneda"]
+)
+@limiter.limit(stocks_rate_limit)
+async def get_multi_exchange_rates(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    async with ExchangeRateService() as service:
+        rates = await service.get_multi_exchange_rates(
+            [("USD", "COP"), ("EUR", "COP")],
+            db
+        )
+        
+        usd_cop = rates.get("USD_COP", {})
+        eur_cop = rates.get("EUR_COP", {})
+        
+        usd_change = None
+        eur_change = None
+        
+        if usd_cop.get("history") and len(usd_cop["history"]) >= 2:
+            old_rate = usd_cop["history"][-2]["rate"]
+            new_rate = usd_cop["today"]
+            usd_change = ((new_rate - old_rate) / old_rate) * 100
+        
+        if eur_cop.get("history") and len(eur_cop["history"]) >= 2:
+            old_rate = eur_cop["history"][-2]["rate"]
+            new_rate = eur_cop["today"]
+            eur_change = ((new_rate - old_rate) / old_rate) * 100
+        
+        return {
+            "usd_cop": {
+                "rate": usd_cop.get("today"),
+                "change_percent": round(usd_change, 2) if usd_change else None,
+                "history": usd_cop.get("history", []),
+                "timestamp": usd_cop.get("timestamp")
+            },
+            "eur_cop": {
+                "rate": eur_cop.get("today"),
+                "change_percent": round(eur_change, 2) if eur_change else None,
+                "history": eur_cop.get("history", []),
+                "timestamp": eur_cop.get("timestamp")
+            }
+        }

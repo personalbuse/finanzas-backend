@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from datetime import datetime, timedelta, date
+from typing import Dict, Any, Optional, List
 import logging
 import httpx
 
+from sqlalchemy import select
 from app.services.cache_service import CacheService
 from app.core.api_keys import ApiKeys
 from app.core.exceptions import CustomException
 from app.core.config import settings
+from app.models.base import ExchangeRateHistory
 
 logger = logging.getLogger(__name__)
 
@@ -98,3 +100,64 @@ class ExchangeRateService:
             "rate": exchange["rate"],
             "timestamp": exchange["timestamp"]
         }
+
+    async def save_exchange_rate(self, from_currency: str, to_currency: str, rate: float, db_session) -> None:
+        today = date.today()
+        
+        stmt = select(ExchangeRateHistory).where(
+            ExchangeRateHistory.from_currency == from_currency.upper(),
+            ExchangeRateHistory.to_currency == to_currency.upper(),
+            ExchangeRateHistory.date == today
+        )
+        result = await db_session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            existing.rate = rate
+        else:
+            new_rate = ExchangeRateHistory(
+                from_currency=from_currency.upper(),
+                to_currency=to_currency.upper(),
+                rate=rate,
+                date=today
+            )
+            db_session.add(new_rate)
+        
+        await db_session.commit()
+
+    async def get_exchange_history(self, from_currency: str, to_currency: str, days: int, db_session) -> List[Dict[str, Any]]:
+        start_date = date.today() - timedelta(days=days)
+        
+        stmt = select(ExchangeRateHistory).where(
+            ExchangeRateHistory.from_currency == from_currency.upper(),
+            ExchangeRateHistory.to_currency == to_currency.upper(),
+            ExchangeRateHistory.date >= start_date
+        ).order_by(ExchangeRateHistory.date.asc())
+        
+        result = await db_session.execute(stmt)
+        rates = result.scalars().all()
+        
+        return [
+            {
+                "date": str(r.date),
+                "rate": float(r.rate)
+            }
+            for r in rates
+        ]
+
+    async def get_multi_exchange_rates(self, pairs: List[tuple], db_session) -> Dict[str, Any]:
+        result = {}
+        
+        for from_curr, to_curr in pairs:
+            current_rate = await self.get_exchange_rate(from_curr, to_curr, db_session)
+            await self.save_exchange_rate(from_curr, to_curr, current_rate["rate"], db_session)
+            
+            history = await self.get_exchange_history(from_curr, to_curr, 7, db_session)
+            
+            result[f"{from_curr}_{to_curr}"] = {
+                "today": current_rate["rate"],
+                "history": history,
+                "timestamp": current_rate["timestamp"]
+            }
+        
+        return result

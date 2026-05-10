@@ -1,7 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, date
 
 Base = declarative_base()
 
@@ -97,3 +97,19 @@ class VerificationCode(Base):
     created_at = Column(DateTime, default=func.now())
     
     user = relationship("User")
+
+
+class ExchangeRateHistory(Base):
+    __tablename__ = "exchange_rate_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    from_currency = Column(String(3), nullable=False)
+    to_currency = Column(String(3), nullable=False)
+    rate = Column(Numeric(15, 6), nullable=False)
+    date = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('from_currency', 'to_currency', 'date', name='unique_rate_date'),
+        Index('idx_rate_currencies_date', 'from_currency', 'to_currency', 'date'),
+    )
