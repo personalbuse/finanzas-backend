@@ -23,13 +23,14 @@ PRELOAD_STOCKS = [
 
 
 @router.post("/stocks/preload", tags=["admin"])
-async def preload_stocks(db: AsyncSession = Depends(get_db)):
+async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     """Endpoint para precargar todos los stocks en cache.
     
+    Version con delay para evitar rate limit (5/min)
     Uso: docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     Configurar en cron: 1 0 * * * docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     """
-    logger.info(f"Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (esto tardara ~7 minutos)...")
+    logger.info(f"NUEVA VERSION - Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (esto tardara ~7 minutos)...")
     
     loaded_count = 0
     failed_count = 0
