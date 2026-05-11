@@ -29,17 +29,23 @@ async def preload_stocks(db: AsyncSession = Depends(get_db)):
     Uso: docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     Configurar en cron: 1 0 * * * docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     """
-    logger.info(f"Iniciando precarga de {len(PRELOAD_STOCKS)} stocks...")
+    logger.info(f"Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (esto tardara ~7 minutos)...")
     
     loaded_count = 0
     failed_count = 0
     
     async with AlphaVantageService() as service:
-        for symbol in PRELOAD_STOCKS:
+        for i, symbol in enumerate(PRELOAD_STOCKS):
             try:
                 await service.get_stock_price(symbol, db, 86400)  # 24h cache
                 loaded_count += 1
-                logger.info(f"Stock cargado: {symbol}")
+                logger.info(f"Stock {i+1}/{len(PRELOAD_STOCKS)} cargado: {symbol}")
+                
+                # Agregar delay para evitar rate limit (5/min) - ejecutar 35 stocks = 7 min
+                if i < len(PRELOAD_STOCKS) - 1:
+                    import asyncio
+                    await asyncio.sleep(12)  # 12 segundos entre cada llamada
+                    
             except Exception as e:
                 failed_count += 1
                 logger.error(f"Error cargando {symbol}: {e}")
