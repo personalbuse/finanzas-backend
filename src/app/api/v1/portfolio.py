@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
-from app.services.alpha_vantage_service import AlphaVantageService
+from app.services.finnhub_service import FinnhubService
 from app.repositories.portfolio_repository import (
     get_portfolio_by_user,
     add_stock_to_portfolio,
@@ -63,7 +63,7 @@ async def buy_stock(
                 detail="Usuario no encontrado"
             )
         
-        async with AlphaVantageService() as service:
+        async with FinnhubService() as service:
             stock_data = await service.get_stock_price(buy_data.symbol, db)
         
         price_per_unit = stock_data["price"]
@@ -112,7 +112,7 @@ async def sell_stock(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        async with AlphaVantageService() as service:
+        async with FinnhubService() as service:
             stock_data = await service.get_stock_price(sell_data.symbol, db)
         
         price_per_unit = stock_data["price"]

@@ -3,7 +3,7 @@ import logging
 
 from app.models.base import Portfolio, Transaction
 from app.core.exceptions import CustomException, ValidationException
-from app.services.alpha_vantage_service import AlphaVantageService
+from app.services.finnhub_service import FinnhubService
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
@@ -103,7 +103,7 @@ async def create_transaction(db: AsyncSession, user_id: int, symbol: str,
 
 
 async def get_current_stock_price(db: AsyncSession, user_id: int, symbol: str) -> float:
-    async with AlphaVantageService() as service:
+    async with FinnhubService() as service:
         stock_data = await service.get_stock_price(symbol, db)
         return stock_data["price"]
 

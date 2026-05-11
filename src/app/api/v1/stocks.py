@@ -87,7 +87,7 @@ async def get_stocks_batch(
     results = []
     unique_symbols = list(set(body.symbols))[:50]  # Máximo 50 símbolos
     
-    async with AlphaVantageService() as service:
+    async with FinnhubService() as service:
         for symbol in unique_symbols:
             try:
                 stock_data = await service.get_stock_price_batch(symbol, db, body.cache_ttl)
@@ -113,7 +113,7 @@ async def get_stock(
     symbol: str,
     db: AsyncSession = Depends(get_db)
 ):
-    async with AlphaVantageService() as service:
+    async with FinnhubService() as service:
         stock_data = await service.get_stock_price(symbol, db)
         return stock_data
 
@@ -129,7 +129,7 @@ async def get_stock_history(
     symbol: str,
     db: AsyncSession = Depends(get_db)
 ):
-    async with AlphaVantageService() as service:
+    async with FinnhubService() as service:
         historical_data = await service.get_historical_data(symbol, db)
         return historical_data
 
