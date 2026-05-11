@@ -21,6 +21,9 @@ PRELOAD_STOCKS = [
     'AVGO', 'COST', 'MCD', 'NKE', 'WMT'
 ]
 
+# Variable global para indicar que el código fue deployado correctamente
+PRELOAD_VERIFIED = True
+
 
 @router.post("/stocks/preload", tags=["admin"])
 async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
