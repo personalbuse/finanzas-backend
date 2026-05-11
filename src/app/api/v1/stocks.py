@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from pydantic import BaseModel
+import logging
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.db.session import get_db
@@ -10,6 +11,46 @@ from app.services.exchange_rate_service import ExchangeRateService
 from app.schemas.stock import StockInfo, HistoricalData
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Lista de 35 stocks principales para precargar
+PRELOAD_STOCKS = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX', 'AMD', 'INTC',
+    'BA', 'JNJ', 'UNH', 'HD', 'PG', 'MA', 'DIS', 'V', 'KO', 'PEP',
+    'CSCO', 'T', 'ADBE', 'CRM', 'CMCSA', 'XOM', 'PFE', 'ORCL', 'QCOM', 'TXN',
+    'AVGO', 'COST', 'MCD', 'NKE', 'WMT'
+]
+
+
+@router.post("/stocks/preload", tags=["admin"])
+async def preload_stocks(db: AsyncSession = Depends(get_db)):
+    """Endpoint para precargar todos los stocks en cache.
+    
+    Uso: docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
+    Configurar en cron: 1 0 * * * docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
+    """
+    logger.info(f"Iniciando precarga de {len(PRELOAD_STOCKS)} stocks...")
+    
+    loaded_count = 0
+    failed_count = 0
+    
+    async with AlphaVantageService() as service:
+        for symbol in PRELOAD_STOCKS:
+            try:
+                await service.get_stock_price(symbol, db, 86400)  # 24h cache
+                loaded_count += 1
+                logger.info(f"Stock cargado: {symbol}")
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Error cargando {symbol}: {e}")
+    
+    logger.info(f"Precarga completada: {loaded_count} exitosos, {failed_count} fallidos")
+    
+    return {
+        "total": len(PRELOAD_STOCKS),
+        "loaded": loaded_count,
+        "failed": failed_count
+    }
 
 
 class BatchStockRequest(BaseModel):
