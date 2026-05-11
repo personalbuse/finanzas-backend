@@ -41,7 +41,7 @@ async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     async with AlphaVantageService() as service:
         for i, symbol in enumerate(PRELOAD_STOCKS):
             try:
-                await service.get_stock_price(symbol, db, 86400)  # 24h cache
+                await service.get_stock_price_batch(symbol, db, 86400)  # 24h cache
                 loaded_count += 1
                 logger.info(f"Stock {i+1}/{len(PRELOAD_STOCKS)} cargado: {symbol}")
                 
