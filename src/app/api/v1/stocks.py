@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from pydantic import BaseModel
@@ -6,7 +6,7 @@ import logging
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.db.session import get_db
-from app.services.finnhub_service import FinnhubService
+from app.services.finnhub_service import FinnhubService, preload_stocks_task, preload_all_stocks
 from app.services.exchange_rate_service import ExchangeRateService
 from app.schemas.stock import StockInfo, HistoricalData
 
@@ -29,37 +29,44 @@ PRELOAD_VERIFIED = True
 async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     """Endpoint para precargar todos los stocks en cache.
     
-    Version con delay para evitar rate limit (5/min)
-    Uso: docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
-    Configurar en cron: 1 0 * * * docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
+    Versión optimizada con llamadas concurrentes (batch de 10).
+    ~20 segundos para 35 stocks en vez de ~35 segundos.
     """
-    logger.info(f"NUEVA VERSION - Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (Finnhub ~35 segundos)...")
+    logger.info(f"NUEVA VERSION - Iniciando precarga optimizada de {len(PRELOAD_STOCKS)} stocks...")
     
-    loaded_count = 0
-    failed_count = 0
+    result = await preload_all_stocks(db, batch_size=10, delay_between_batches=0.5)
     
-    async with FinnhubService() as service:
-        for i, symbol in enumerate(PRELOAD_STOCKS):
-            try:
-                await service.get_stock_price_batch(symbol, db, 86400)  # 24h cache
-                loaded_count += 1
-                logger.info(f"Stock {i+1}/{len(PRELOAD_STOCKS)} cargado: {symbol}")
-                
-                # Delay para evitar rate limit Finnhub (60/min) - 35 stocks = ~35 segundos
-                if i < len(PRELOAD_STOCKS) - 1:
-                    import asyncio
-                    await asyncio.sleep(1)  # 1 segundo entre cada llamada
-                    
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"Error cargando {symbol}: {e}")
+    logger.info(f"Precarga completada: {result}")
     
-    logger.info(f"Precarga completada: {loaded_count} exitosos, {failed_count} fallidos")
+    return result
+
+
+@router.post("/stocks/refresh", tags=["admin"])
+async def refresh_stocks_background(background_tasks: BackgroundTasks):
+    """Endpoint para iniciar actualización de stocks en background.
     
+    El usuario no espera - la actualización corre en background.
+    Uso desde frontend cuando el usuario entra a la sección de stocks.
+    """
+    logger.info("Solicitud de refresh de stocks recibida - ejecutando en background")
+    background_tasks.add_task(preload_stocks_task)
     return {
-        "total": len(PRELOAD_STOCKS),
-        "loaded": loaded_count,
-        "failed": failed_count
+        "message": "Actualización de stocks iniciada en background",
+        "status": "processing"
+    }
+
+
+@router.post("/stocks/refresh-sync", tags=["admin"])
+async def refresh_stocks_sync(db: AsyncSession = Depends(get_db)):
+    """Endpoint para actualizar stocks de forma síncrona (para testing).
+    
+    Retorna cuando completa la actualización (~20 segundos con batch de 10).
+    """
+    logger.info("Solicitud de refresh síncrona de stocks")
+    result = await preload_all_stocks(db, batch_size=10, delay_between_batches=0.5)
+    return {
+        "message": "Actualización de stocks completada",
+        "result": result
     }
 
 

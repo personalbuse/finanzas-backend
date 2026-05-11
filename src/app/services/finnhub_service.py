@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 import logging
 import httpx
 import json
+import asyncio
 
 from app.services.cache_service import CacheService
 from app.core.api_keys import ApiKeys
@@ -203,3 +204,74 @@ class FinnhubService:
                 status_code=500,
                 detail=f"Error al obtener datos históricos: {str(e)}"
             )
+
+
+PRELOAD_STOCKS = [
+    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX', 'AMD', 'INTC',
+    'BA', 'JNJ', 'UNH', 'HD', 'PG', 'MA', 'DIS', 'V', 'KO', 'PEP',
+    'CSCO', 'T', 'ADBE', 'CRM', 'CMCSA', 'XOM', 'PFE', 'ORCL', 'QCOM', 'TXN',
+    'AVGO', 'COST', 'MCD', 'NKE', 'WMT'
+]
+
+
+async def preload_all_stocks(db_session, batch_size: int = 10, delay_between_batches: float = 0.5):
+    """Preload all stocks with concurrent calls for optimal performance.
+    
+    Args:
+        db_session: Database session
+        batch_size: Number of concurrent API calls (default 10)
+        delay_between_batches: Delay between batches in seconds (default 0.5)
+    
+    Returns:
+        dict with loaded and failed counts
+    """
+    logger.info(f"Iniciando preload de {len(PRELOAD_STOCKS)} stocks con batch_size={batch_size}")
+    
+    loaded_count = 0
+    failed_count = 0
+    
+    async with FinnhubService() as service:
+        for i in range(0, len(PRELOAD_STOCKS), batch_size):
+            batch = PRELOAD_STOCKS[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(PRELOAD_STOCKS) + batch_size - 1) // batch_size
+            
+            logger.info(f"Procesando batch {batch_num}/{total_batches}: {batch}")
+            
+            tasks = []
+            for symbol in batch:
+                task = service.get_stock_price_batch(symbol, db_session, 86400)
+                tasks.append(task)
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for symbol, result in zip(batch, results):
+                if isinstance(result, Exception):
+                    failed_count += 1
+                    logger.error(f"Error en {symbol}: {result}")
+                else:
+                    loaded_count += 1
+                    logger.info(f"Stock {symbol} cargado exitosamente")
+            
+            if i + batch_size < len(PRELOAD_STOCKS):
+                await asyncio.sleep(delay_between_batches)
+    
+    logger.info(f"Preload completado: {loaded_count} exitosos, {failed_count} fallidos")
+    return {"total": len(PRELOAD_STOCKS), "loaded": loaded_count, "failed": failed_count}
+
+
+async def preload_stocks_task():
+    """Task function for background preload (used by APScheduler and BackgroundTasks)."""
+    from app.db.session import SessionLocal
+    from sqlalchemy import text
+    
+    logger.info("Iniciando tarea de preload de stocks...")
+    
+    try:
+        async with SessionLocal() as db:
+            result = await preload_all_stocks(db)
+            logger.info(f"Tarea de preload completada: {result}")
+            return result
+    except Exception as e:
+        logger.error(f"Error en tarea de preload: {e}")
+        return {"error": str(e)}

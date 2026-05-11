@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 import importlib
 import logging
+import asyncio
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.core.config import settings
 from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
@@ -11,6 +15,8 @@ from slowapi.errors import RateLimitExceeded
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+scheduler = AsyncIOScheduler()
 
 
 def create_application() -> FastAPI:
@@ -84,9 +90,26 @@ def create_application() -> FastAPI:
         logger.info("Starting Simulador de Inversiones API v2.0.0")
         logger.info(f"Environment: {settings.ENVIRONMENT}")
         logger.info(f"Redis: {'enabled' if settings.REDIS_URL else 'disabled (fallback to PostgreSQL)'}")
+        
+        # Configurar APScheduler para actualización diaria a las 00:01 Colombia (UTC 05:01)
+        from app.services.finnhub_service import preload_stocks_task
+        scheduler.add_job(
+            preload_stocks_task,
+            'cron',
+            hour=5,
+            minute=1,
+            timezone='America/Bogota'
+        )
+        scheduler.start()
+        logger.info("Scheduler configurado para actualización diaria a las 00:01 Colombia")
+        
+        # Ejecutar preload inicial en background (sin bloquear startup)
+        asyncio.create_task(preload_stocks_task())
+        logger.info("Preload inicial iniciado en background")
     
     @app.on_event("shutdown")
     async def shutdown_event():
+        scheduler.shutdown()
         await close_redis_client()
         logger.info("Application shutdown complete")
     
