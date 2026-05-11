@@ -6,7 +6,7 @@ import logging
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.db.session import get_db
-from app.services.alpha_vantage_service import AlphaVantageService
+from app.services.finnhub_service import FinnhubService
 from app.services.exchange_rate_service import ExchangeRateService
 from app.schemas.stock import StockInfo, HistoricalData
 
@@ -33,22 +33,22 @@ async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     Uso: docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     Configurar en cron: 1 0 * * * docker exec <container> curl http://localhost:8000/api/v1/stocks/preload
     """
-    logger.info(f"NUEVA VERSION - Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (esto tardara ~7 minutos)...")
+    logger.info(f"NUEVA VERSION - Iniciando precarga de {len(PRELOAD_STOCKS)} stocks (Finnhub ~35 segundos)...")
     
     loaded_count = 0
     failed_count = 0
     
-    async with AlphaVantageService() as service:
+    async with FinnhubService() as service:
         for i, symbol in enumerate(PRELOAD_STOCKS):
             try:
                 await service.get_stock_price_batch(symbol, db, 86400)  # 24h cache
                 loaded_count += 1
                 logger.info(f"Stock {i+1}/{len(PRELOAD_STOCKS)} cargado: {symbol}")
                 
-                # Agregar delay para evitar rate limit (5/min) - ejecutar 35 stocks = 7 min
+                # Delay para evitar rate limit Finnhub (60/min) - 35 stocks = ~35 segundos
                 if i < len(PRELOAD_STOCKS) - 1:
                     import asyncio
-                    await asyncio.sleep(12)  # 12 segundos entre cada llamada
+                    await asyncio.sleep(1)  # 1 segundo entre cada llamada
                     
             except Exception as e:
                 failed_count += 1

@@ -4,6 +4,7 @@ from app.core.config import settings
 class ApiKeys:
     ALPHA_VANTAGE = settings.ALPHA_VANTAGE_API_KEY
     EXCHANGE_RATE = settings.EXCHANGE_RATE_API_KEY
+    FINNHUB = settings.FINNHUB_API_KEY
 
 
 def validate_api_keys():
