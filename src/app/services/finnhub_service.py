@@ -262,13 +262,12 @@ async def preload_all_stocks(db_session, batch_size: int = 10, delay_between_bat
 
 async def preload_stocks_task():
     """Task function for background preload (used by APScheduler and BackgroundTasks)."""
-    from app.db.session import SessionLocal
-    from sqlalchemy import text
+    from app.db.session import AsyncSessionLocal
     
     logger.info("Iniciando tarea de preload de stocks...")
     
     try:
-        async with SessionLocal() as db:
+        async with AsyncSessionLocal() as db:
             result = await preload_all_stocks(db)
             logger.info(f"Tarea de preload completada: {result}")
             return result
