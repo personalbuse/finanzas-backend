@@ -8,7 +8,6 @@ env_path = backend_dir / ".env"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    ALPHA_VANTAGE_API_KEY: str
     EXCHANGE_RATE_API_KEY: str
     FINNHUB_API_KEY: str
     SECRET_KEY: str

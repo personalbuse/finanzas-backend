@@ -57,16 +57,18 @@ class FinnhubService:
                 logger.warning(f"Finnhub sin datos para {symbol}")
                 return self._get_fallback_data(symbol, db_session)
             
+            dp_value = data.get("dp", 0)
             result = {
                 "symbol": symbol.upper(),
                 "price": data.get("c", 0),
                 "change": data.get("d", 0),
-                "change_percent": data.get("dp", 0),
+                "change_percent": f"{dp_value:.2f}%" if dp_value is not None else "0%",
+                "volume": 0,
                 "high": data.get("h", 0),
                 "low": data.get("l", 0),
                 "open": data.get("o", 0),
                 "previous_close": data.get("pc", 0),
-                "timestamp": data.get("t", 0),
+                "timestamp": datetime.fromtimestamp(data.get("t", 0)).isoformat() if data.get("t") else datetime.utcnow().isoformat(),
                 "source": "Finnhub",
                 "last_trading_day": datetime.fromtimestamp(data.get("t", 0)).strftime("%Y-%m-%d") if data.get("t") else datetime.utcnow().strftime("%Y-%m-%d")
             }
@@ -104,7 +106,7 @@ class FinnhubService:
             "symbol": symbol.upper(),
             "price": price,
             "change": 0.5,
-            "change_percent": 0.25,
+            "change_percent": "0.25%",
             "volume": 1000000,
             "last_trading_day": datetime.utcnow().strftime("%Y-%m-%d"),
             "previous_close": price - 0.5,
