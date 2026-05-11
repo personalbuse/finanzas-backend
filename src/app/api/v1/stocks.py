@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
+from pydantic import BaseModel
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.db.session import get_db
@@ -8,6 +10,45 @@ from app.services.exchange_rate_service import ExchangeRateService
 from app.schemas.stock import StockInfo, HistoricalData
 
 router = APIRouter()
+
+
+class BatchStockRequest(BaseModel):
+    symbols: List[str]
+    cache_ttl: int = 86400  # 24 horas por defecto
+
+
+@router.post(
+    "/stocks/batch",
+    response_model=List[StockInfo],
+    tags=["acciones"]
+)
+@limiter.limit("30/minute")
+async def get_stocks_batch(
+    request: Request,
+    body: BatchStockRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Obtiene múltiples acciones en una sola petición.
+    
+    Usa cache con TTL de 24 horas por defecto.
+    Escalable para múltiples símbolos.
+    """
+    results = []
+    unique_symbols = list(set(body.symbols))[:50]  # Máximo 50 símbolos
+    
+    async with AlphaVantageService() as service:
+        for symbol in unique_symbols:
+            try:
+                stock_data = await service.get_stock_price_batch(symbol, db, body.cache_ttl)
+                results.append(stock_data)
+            except Exception as e:
+                # Si falla, continuar con los demás
+                results.append({
+                    "symbol": symbol.upper(),
+                    "error": str(e)
+                })
+    
+    return results
 
 
 @router.get(

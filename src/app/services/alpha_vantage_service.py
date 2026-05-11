@@ -27,6 +27,110 @@ class AlphaVantageService:
         if self.http_client:
             await self.http_client.aclose()
     
+    async def get_stock_price_batch(self, symbol: str, db_session, ttl_seconds: int = 86400) -> Dict[str, Any]:
+        """Obtiene el precio de una acción con cache personalizable.
+        
+        Args:
+            symbol: Símbolo de la acción
+            db_session: Sesión de base de datos
+            ttl_seconds: Tiempo de cache en segundos (default 24 horas)
+        """
+        # Intentar obtener del cache primero
+        cached = await CacheService.get(db_session, "stock", symbol)
+        if cached:
+            logger.info(f"Cache hit para {symbol}")
+            return cached
+        
+        if not self.api_key:
+            return {
+                "symbol": symbol.upper(),
+                "price": 100.0,
+                "change": 0,
+                "change_percent": "0%",
+                "volume": 0,
+                "last_trading_day": datetime.utcnow().strftime("%Y-%m-%d"),
+                "previous_close": 100.0,
+                "source": "Simulated (No API Key)",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    self.BASE_URL,
+                    params={
+                        "function": "GLOBAL_QUOTE",
+                        "symbol": symbol.upper(),
+                        "apikey": self.api_key
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+            
+            is_rate_limited = "Note" in data
+            is_error = "Error Message" in data
+            
+            if is_rate_limited or is_error or "Global Quote" not in data:
+                logger.warning(f"Alpha Vantage rate limit o error para {symbol}")
+                # Usar fallback
+                from sqlalchemy import select
+                from app.models.base import CacheData
+                stmt = select(CacheData).where(CacheData.key == CacheService.generate_key("stock", symbol))
+                res = await db_session.execute(stmt)
+                expired_cache = res.scalar_one_or_none()
+                
+                if expired_cache:
+                    return json.loads(expired_cache.value)
+                
+                # Fallback simulado
+                return {
+                    "symbol": symbol.upper(),
+                    "price": 100.0,
+                    "change": 0,
+                    "change_percent": "0%",
+                    "volume": 1000000,
+                    "last_trading_day": datetime.utcnow().strftime("%Y-%m-%d"),
+                    "previous_close": 100.0,
+                    "source": "Simulated Data",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            
+            quote = data["Global Quote"]
+            result = {
+                "symbol": symbol.upper(),
+                "price": float(quote.get("05. price", 0)),
+                "change": float(quote.get("09. change", 0)),
+                "change_percent": quote.get("10. change percent", "0%"),
+                "volume": int(quote.get("06. volume", 0)),
+                "last_trading_day": quote.get("07. latest trading day", ""),
+                "previous_close": float(quote.get("08. previous close", 0)),
+                "source": "Alpha Vantage",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # Guardar en cache con TTL personalizado
+            await CacheService.set(
+                db_session, "stock", symbol,
+                value=result,
+                ttl_seconds=ttl_seconds
+            )
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Error recuperar stock {symbol}: {str(e)}")
+            return {
+                "symbol": symbol.upper(),
+                "price": 100.0,
+                "change": 0,
+                "change_percent": "0%",
+                "volume": 0,
+                "last_trading_day": datetime.utcnow().strftime("%Y-%m-%d"),
+                "previous_close": 100.0,
+                "source": "Default Fallback",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
     async def get_stock_price(self, symbol: str, db_session) -> Dict[str, Any]:
         cached = await CacheService.get(db_session, "stock", symbol)
         if cached:
