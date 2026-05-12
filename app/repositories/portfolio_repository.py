@@ -101,14 +101,9 @@ async def create_transaction(db: AsyncSession, user_id: int, symbol: str,
     return transaction
 
 
-async def get_current_stock_price(db: AsyncSession, symbol: str, service: FinnhubService = None) -> float:
-    if service:
-        stock_data = await service.get_stock_price(symbol, db)
-        return stock_data["price"]
-
-    async with FinnhubService() as local_service:
-        stock_data = await local_service.get_stock_price(symbol, db)
-        return stock_data["price"]
+async def get_current_stock_price(db: AsyncSession, symbol: str, service: FinnhubService) -> float:
+    stock_data = await service.get_stock_price(symbol, db)
+    return stock_data["price"]
 
 
 async def calculate_portfolio_values(db: AsyncSession, user_id: int) -> dict:

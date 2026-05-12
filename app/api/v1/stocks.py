@@ -7,20 +7,12 @@ import logging
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.core.security import require_admin_api_key
 from app.db.session import get_db
-from app.services.finnhub_service import FinnhubService, preload_stocks_task, preload_all_stocks
+from app.services.finnhub_service import FinnhubService, preload_stocks_task, preload_all_stocks, PRELOAD_STOCKS
 from app.services.exchange_rate_service import ExchangeRateService
 from app.schemas.stock import StockInfo, HistoricalData
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Lista de 35 stocks principales para precargar
-PRELOAD_STOCKS = [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX', 'AMD', 'INTC',
-    'BA', 'JNJ', 'UNH', 'HD', 'PG', 'MA', 'DIS', 'V', 'KO', 'PEP',
-    'CSCO', 'T', 'ADBE', 'CRM', 'CMCSA', 'XOM', 'PFE', 'ORCL', 'QCOM', 'TXN',
-    'AVGO', 'COST', 'MCD', 'NKE', 'WMT'
-]
 
 # Variable global para indicar que el código fue deployado correctamente
 PRELOAD_VERIFIED = True

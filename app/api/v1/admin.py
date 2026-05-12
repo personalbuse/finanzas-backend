@@ -1,8 +1,10 @@
 import jwt
 import logging
+from typing import Optional
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+
+
+class RoleRequest(BaseModel):
+    new_role: str = Field(..., pattern="^(inversor|admin)$")
+
+
+class BalanceRequest(BaseModel):
+    new_balance: float = Field(..., ge=0)
 
 
 async def require_admin(token: str = Depends(oauth2_scheme)) -> str:
@@ -90,12 +100,10 @@ async def get_user_detail(
 @router.patch("/admin/users/{user_id}/role", tags=["admin"])
 async def change_user_role(
     user_id: int,
-    new_role: str,
+    body: RoleRequest,
     db: AsyncSession = Depends(get_db),
     admin: str = Depends(require_admin),
 ):
-    if new_role not in ("inversor", "admin"):
-        raise HTTPException(status_code=400, detail="Rol inválido. Use 'inversor' o 'admin'")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -104,9 +112,9 @@ async def change_user_role(
     admin_user = admin_result.scalar_one_or_none()
     if admin_user and admin_user.id == user_id:
         raise HTTPException(status_code=403, detail="No puedes cambiar tu propio rol")
-    user.rol = new_role
+    user.rol = body.new_role
     await db.commit()
-    return {"message": f"Rol cambiado a {new_role}", "user_id": user_id}
+    return {"message": f"Rol cambiado a {body.new_role}", "user_id": user_id}
 
 
 @router.patch("/admin/users/{user_id}/ban", tags=["admin"])
@@ -132,19 +140,17 @@ async def toggle_ban_user(
 @router.patch("/admin/users/{user_id}/balance", tags=["admin"])
 async def adjust_balance(
     user_id: int,
-    new_balance: float,
+    body: BalanceRequest,
     db: AsyncSession = Depends(get_db),
     admin: str = Depends(require_admin),
 ):
-    if new_balance < 0:
-        raise HTTPException(status_code=400, detail="El saldo no puede ser negativo")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    user.current_balance = new_balance
+    user.current_balance = body.new_balance
     await db.commit()
-    return {"message": "Saldo actualizado", "user_id": user_id, "new_balance": new_balance}
+    return {"message": "Saldo actualizado", "user_id": user_id, "new_balance": body.new_balance}
 
 
 @router.get("/admin/kpis", tags=["admin"])

@@ -3,8 +3,6 @@ from typing import Dict, Any, Optional, List
 import logging
 import asyncio
 
-import httpx
-
 from sqlalchemy import select
 from app.services.cache_service import CacheService
 from app.core.api_keys import ApiKeys
@@ -34,12 +32,11 @@ class ExchangeRateService:
             await self.http_client.aclose()
     
     async def _fetch_rate_from_api(self, from_currency: str, to_currency: str) -> Optional[Dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{self.BASE_URL}/{self.api_key}/latest/{from_currency.upper()}"
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await self.http_client.get(
+            f"{self.BASE_URL}/{self.api_key}/latest/{from_currency.upper()}"
+        )
+        response.raise_for_status()
+        data = response.json()
 
         if data.get("result") != "success":
             logger.error(f"ExchangeRate API error: {data.get('error-type', 'unknown')}")
@@ -157,7 +154,7 @@ class ExchangeRateService:
             )
             db_session.add(new_rate)
         
-        await db_session.commit()
+        await db_session.flush()
 
     async def get_exchange_history(self, from_currency: str, to_currency: str, days: int, db_session) -> List[Dict[str, Any]]:
         start_date = date.today() - timedelta(days=days)
