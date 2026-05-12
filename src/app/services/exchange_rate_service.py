@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, date
 from typing import Dict, Any, Optional, List
 import logging
+import asyncio
+
 import httpx
 
 from sqlalchemy import select
@@ -11,6 +13,9 @@ from app.core.config import settings
 from app.models.base import ExchangeRateHistory
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+RETRY_DELAYS = [1, 2, 4]
 
 
 class ExchangeRateService:
@@ -28,63 +33,92 @@ class ExchangeRateService:
         if self.http_client:
             await self.http_client.aclose()
     
+    async def _fetch_rate_from_api(self, from_currency: str, to_currency: str) -> Optional[Dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{self.BASE_URL}/{self.api_key}/latest/{from_currency.upper()}"
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("result") != "success":
+            logger.error(f"ExchangeRate API error: {data.get('error-type', 'unknown')}")
+            return None
+
+        rates = data.get("conversion_rates", {})
+        if to_currency.upper() not in rates:
+            logger.error(f"Currency {to_currency.upper()} not found in rates")
+            return None
+
+        return {
+            "from_currency": from_currency.upper(),
+            "to_currency": to_currency.upper(),
+            "rate": rates[to_currency.upper()],
+            "timestamp": datetime.utcnow().isoformat(),
+            "source": "ExchangeRate-API"
+        }
+
+    async def _get_fallback_rate(self, from_currency: str, to_currency: str, db_session) -> Optional[Dict[str, Any]]:
+        stmt = select(ExchangeRateHistory).where(
+            ExchangeRateHistory.from_currency == from_currency.upper(),
+            ExchangeRateHistory.to_currency == to_currency.upper()
+        ).order_by(ExchangeRateHistory.date.desc()).limit(1)
+
+        result = await db_session.execute(stmt)
+        historical = result.scalar_one_or_none()
+
+        if historical:
+            logger.warning(f"Using historical fallback for {from_currency}/{to_currency}: {historical.rate}")
+            return {
+                "from_currency": from_currency.upper(),
+                "to_currency": to_currency.upper(),
+                "rate": float(historical.rate),
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "ExchangeRate-Historical-Fallback"
+            }
+
+        return None
+
     async def get_exchange_rate(self, from_currency: str, to_currency: str, db_session) -> Dict[str, Any]:
         cached = await CacheService.get(db_session, "exchange", from_currency, to_currency)
         if cached:
             return cached
-        
+
         if not self.api_key:
             raise CustomException(
                 status_code=500,
                 detail="API Key de ExchangeRate no configurada"
             )
-        
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    f"{self.BASE_URL}/{self.api_key}/latest/{from_currency.upper()}"
-                )
-                response.raise_for_status()
-                data = response.json()
-            
-            if data.get("result") != "success":
-                raise CustomException(
-                    status_code=400,
-                    detail=f"Error en conversión de moneda: {data.get('error-type', 'error desconocido')}"
-                )
-            
-            rates = data.get("conversion_rates", {})
-            
-            if to_currency.upper() not in rates:
-                raise CustomException(
-                    status_code=404,
-                    detail=f"Moneda {to_currency.upper()} no encontrada"
-                )
-            
-            rate = rates[to_currency.upper()]
-            
-            result = {
-                "from_currency": from_currency.upper(),
-                "to_currency": to_currency.upper(),
-                "rate": rate,
-                "timestamp": datetime.utcnow().isoformat(),
-                "source": "ExchangeRate-API"
-            }
-            
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                result = await self._fetch_rate_from_api(from_currency, to_currency)
+                if result:
+                    await CacheService.set(
+                        db_session, "exchange", from_currency, to_currency,
+                        value=result,
+                        ttl_seconds=86400
+                    )
+                    return result
+            except httpx.HTTPError as e:
+                logger.warning(f"ExchangeRate attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_DELAYS[attempt])
+                continue
+
+        fallback = await self._get_fallback_rate(from_currency, to_currency, db_session)
+        if fallback:
             await CacheService.set(
                 db_session, "exchange", from_currency, to_currency,
-                value=result,
+                value=fallback,
                 ttl_seconds=3600
             )
-            
-            return result
-        
-        except httpx.HTTPError as e:
-            logger.error(f"Error HTTP con ExchangeRate: {str(e)}")
-            raise CustomException(
-                status_code=503,
-                detail="Error de conexión con ExchangeRate API"
-            )
+            return fallback
+
+        raise CustomException(
+            status_code=503,
+            detail="Error de conexión con ExchangeRate API y no hay datos históricos disponibles"
+        )
     
     async def convert_currency(self, amount: float, from_currency: str, 
                                to_currency: str, db_session) -> Dict[str, Any]:
