@@ -3,6 +3,8 @@ from typing import Dict, Any, Optional, List
 import logging
 import asyncio
 
+import httpx
+
 from sqlalchemy import select
 from app.services.cache_service import CacheService
 from app.core.api_keys import ApiKeys
