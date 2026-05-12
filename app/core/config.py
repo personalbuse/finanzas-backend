@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = ""
-    FRONTEND_URL: str = "https://dabuma.site"
+    FRONTEND_URL: str = ""
     ADMIN_API_KEY: str = ""
     ENABLE_STARTUP_PRELOAD: bool = True
 
