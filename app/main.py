@@ -94,9 +94,19 @@ def create_application() -> FastAPI:
     
     @app.get("/health")
     async def health_check():
+        db_status = "disconnected"
+        try:
+            from app.db.session import AsyncSessionLocal
+            from sqlalchemy import text
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+                db_status = "connected"
+        except Exception:
+            db_status = "disconnected"
+        
         return {
-            "status": "healthy",
-            "database": "connected",
+            "status": "healthy" if db_status == "connected" else "degraded",
+            "database": db_status,
             "cache": "redis" if settings.REDIS_URL else "postgresql"
         }
     
