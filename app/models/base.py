@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Date, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, date
@@ -63,7 +63,7 @@ class CacheData(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(255), unique=True, index=True, nullable=False)
-    value = Column(String(1000), nullable=False)
+    value = Column(Text, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=func.now())
     
