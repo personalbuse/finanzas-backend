@@ -100,6 +100,10 @@ async def change_user_role(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    admin_result = await db.execute(select(User).where(User.username == admin))
+    admin_user = admin_result.scalar_one_or_none()
+    if admin_user and admin_user.id == user_id:
+        raise HTTPException(status_code=403, detail="No puedes cambiar tu propio rol")
     user.rol = new_role
     await db.commit()
     return {"message": f"Rol cambiado a {new_role}", "user_id": user_id}
@@ -115,6 +119,10 @@ async def toggle_ban_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    admin_result = await db.execute(select(User).where(User.username == admin))
+    admin_user = admin_result.scalar_one_or_none()
+    if admin_user and admin_user.id == user_id:
+        raise HTTPException(status_code=403, detail="No puedes banearte a ti mismo")
     user.is_active = not user.is_active
     await db.commit()
     status_text = "activado" if user.is_active else "baneado"

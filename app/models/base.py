@@ -16,8 +16,8 @@ class User(Base):
     initial_balance = Column(Numeric(15, 2), default=10000.00)
     current_balance = Column(Numeric(15, 2), default=10000.00)
     completed_courses = Column(Integer, default=0)
-    rol = Column(String(20), default="inversor")
-    is_active = Column(Boolean, default=True)
+    rol = Column(String(20), default="inversor", index=True)
+    is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
@@ -46,14 +46,14 @@ class Transaction(Base):
     __tablename__ = "transactions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     symbol = Column(String(10), nullable=False)
-    transaction_type = Column(String(10), nullable=False)  # 'buy' o 'sell'
+    transaction_type = Column(String(10), nullable=False)
     quantity = Column(Numeric(15, 4), nullable=False)
     price_per_unit = Column(Numeric(15, 4), nullable=False)
     total_amount = Column(Numeric(15, 2), nullable=False)
     currency = Column(String(3), default="USD")
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=func.now(), index=True)
     
     user = relationship("User", back_populates="transactions")
 
@@ -89,11 +89,11 @@ class VerificationCode(Base):
     __tablename__ = "verification_codes"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     code = Column(String(6), nullable=False)
-    code_type = Column(String(20), nullable=False)  # '2fa', 'email_verification'
+    code_type = Column(String(20), nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    used = Column(Boolean, default=False)
+    used = Column(Boolean, default=False, index=True)
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=func.now())
     
