@@ -1,0 +1,95 @@
+import redis.asyncio as redis
+import logging
+from typing import Optional
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+_redis_client: Optional[redis.Redis] = None
+
+
+async def get_redis_client() -> redis.Redis:
+    global _redis_client
+    
+    if _redis_client is None:
+        try:
+            redis_url = getattr(settings, 'REDIS_URL', None)
+            if not redis_url:
+                logger.warning("REDIS_URL not configured, using fallback cache")
+                return None
+                
+            _redis_client = redis.from_url(
+                redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+            await _redis_client.ping()
+            logger.info("Redis connection established")
+        except Exception as e:
+            logger.exception("Failed to connect to Redis")
+            _redis_client = None
+            
+    return _redis_client
+
+
+async def close_redis_client():
+    global _redis_client
+    if _redis_client:
+        await _redis_client.close()
+        _redis_client = None
+        logger.info("Redis connection closed")
+
+
+class RedisCache:
+    @staticmethod
+    async def get(key: str) -> Optional[str]:
+        client = await get_redis_client()
+        if client is None:
+            return None
+        try:
+            return await client.get(key)
+        except Exception as e:
+            logger.exception(f"Redis GET error for {key}")
+            return None
+    
+    @staticmethod
+    async def set(key: str, value: str, ttl_seconds: int = 300) -> bool:
+        client = await get_redis_client()
+        if client is None:
+            return False
+        try:
+            await client.setex(key, ttl_seconds, value)
+            return True
+        except Exception as e:
+            logger.exception(f"Redis SET error for {key}")
+            return False
+    
+    @staticmethod
+    async def delete(key: str) -> bool:
+        client = await get_redis_client()
+        if client is None:
+            return False
+        try:
+            await client.delete(key)
+            return True
+        except Exception as e:
+            logger.exception(f"Redis DELETE error for {key}")
+            return False
+    
+    @staticmethod
+    async def get_json(key: str) -> Optional[dict]:
+        value = await RedisCache.get(key)
+        if value:
+            import json
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        return None
+    
+    @staticmethod
+    async def set_json(key: str, value: dict, ttl_seconds: int = 300) -> bool:
+        import json
+        return await RedisCache.set(key, json.dumps(value), ttl_seconds)
