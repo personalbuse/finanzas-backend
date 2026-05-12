@@ -13,7 +13,7 @@ from app.core.redis_client import close_redis_client
 from slowapi.errors import RateLimitExceeded
 
 if settings.ENVIRONMENT == "production":
-    logging.disable(logging.CRITICAL)
+    logging.basicConfig(level=logging.WARNING)
 else:
     logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
