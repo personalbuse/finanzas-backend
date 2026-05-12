@@ -45,10 +45,9 @@ class FinnhubService:
                 "token": self.api_key
             }
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
             
             if "error" in data:
                 logger.warning(f"Finnhub error para {symbol}: {data.get('error')}")
@@ -83,7 +82,7 @@ class FinnhubService:
             return result
         
         except Exception as e:
-            logger.error(f"Error retrieving stock {symbol}: {str(e)}")
+            logger.exception(f"Error retrieving stock {symbol}")
             return self._get_fallback_data(symbol, db_session)
     
     async def get_stock_price(self, symbol: str, db_session, ttl_seconds: int = 86400) -> Dict[str, Any]:
@@ -153,10 +152,9 @@ class FinnhubService:
                 "token": self.api_key
             }
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            response = await self.http_client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
             
             if data.get("s") != "ok":
                 raise CustomException(
@@ -199,7 +197,7 @@ class FinnhubService:
                 detail="Error de conexión con Finnhub"
             )
         except Exception as e:
-            logger.error(f"Error retrieving historical data for {symbol}: {str(e)}")
+            logger.exception(f"Error retrieving historical data for {symbol}")
             raise CustomException(
                 status_code=500,
                 detail=f"Error al obtener datos históricos: {str(e)}"
@@ -230,31 +228,35 @@ async def preload_all_stocks(db_session, batch_size: int = 10, delay_between_bat
     loaded_count = 0
     failed_count = 0
     
-    async with FinnhubService() as service:
-        for i in range(0, len(PRELOAD_STOCKS), batch_size):
-            batch = PRELOAD_STOCKS[i:i + batch_size]
-            batch_num = (i // batch_size) + 1
-            total_batches = (len(PRELOAD_STOCKS) + batch_size - 1) // batch_size
-            
-            logger.info(f"Procesando batch {batch_num}/{total_batches}: {batch}")
-            
-            tasks = []
-            for symbol in batch:
-                task = service.get_stock_price_batch(symbol, db_session, 86400)
-                tasks.append(task)
-            
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for symbol, result in zip(batch, results):
-                if isinstance(result, Exception):
-                    failed_count += 1
-                    logger.error(f"Error en {symbol}: {result}")
-                else:
-                    loaded_count += 1
-                    logger.info(f"Stock {symbol} cargado exitosamente")
-            
-            if i + batch_size < len(PRELOAD_STOCKS):
-                await asyncio.sleep(delay_between_batches)
+    from app.db.session import AsyncSessionLocal
+
+    async def load_symbol(symbol: str):
+        async with AsyncSessionLocal() as session:
+            async with FinnhubService() as service:
+                return await service.get_stock_price_batch(symbol, session, 86400)
+
+    for i in range(0, len(PRELOAD_STOCKS), batch_size):
+        batch = PRELOAD_STOCKS[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (len(PRELOAD_STOCKS) + batch_size - 1) // batch_size
+
+        logger.info(f"Procesando batch {batch_num}/{total_batches}: {batch}")
+
+        results = await asyncio.gather(
+            *(load_symbol(symbol) for symbol in batch),
+            return_exceptions=True
+        )
+
+        for symbol, result in zip(batch, results):
+            if isinstance(result, Exception):
+                failed_count += 1
+                logger.error(f"Error en {symbol}: {result}")
+            else:
+                loaded_count += 1
+                logger.info(f"Stock {symbol} cargado exitosamente")
+
+        if i + batch_size < len(PRELOAD_STOCKS):
+            await asyncio.sleep(delay_between_batches)
     
     logger.info(f"Preload completado: {loaded_count} exitosos, {failed_count} fallidos")
     return {"total": len(PRELOAD_STOCKS), "loaded": loaded_count, "failed": failed_count}

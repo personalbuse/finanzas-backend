@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+import logging
 import bcrypt
 import jwt
+
+logger = logging.getLogger(__name__)
 
 from app.models.base import User
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +21,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
             hashed_password.encode('utf-8')
         )
     except Exception:
+        logger.exception("Error verifying password")
         return False
 
 
@@ -78,5 +82,8 @@ async def get_current_user(db: AsyncSession, token: str) -> User:
     
     if user is None:
         raise UnauthorizedException("Usuario no encontrado")
+
+    if not user.is_active:
+        raise UnauthorizedException("Usuario inactivo")
     
     return user

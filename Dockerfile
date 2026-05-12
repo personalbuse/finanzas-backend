@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY src /app
+COPY app /app/app
 COPY alembic.ini /app/alembic.ini
 COPY alembic /app/alembic
 ENV PYTHONPATH=/app

@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
 import importlib
 import logging
 import asyncio
@@ -13,7 +12,10 @@ from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
 from app.core.redis_client import close_redis_client
 from slowapi.errors import RateLimitExceeded
 
-logging.basicConfig(level=logging.INFO)
+if settings.ENVIRONMENT == "production":
+    logging.disable(logging.CRITICAL)
+else:
+    logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
@@ -33,14 +35,22 @@ def create_application() -> FastAPI:
     async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         return await rate_limit_exceeded_handler(request, exc)
     
-    cors_origins = ["*"]
+    cors_origins = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+    ]
     if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
         cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
+    elif settings.ENVIRONMENT == "production":
+        cors_origins = [settings.FRONTEND_URL.rstrip("/")]
+    elif settings.CORS_ORIGINS == "*":
+        cors_origins = ["*"]
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_credentials=True,
+        allow_credentials=cors_origins != ["*"],
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=["Authorization"],
@@ -66,6 +76,11 @@ def create_application() -> FastAPI:
         importlib.import_module("app.api.v1.learning").router, 
         prefix="/api/v1", 
         tags=["learning"]
+    )
+    app.include_router(
+        importlib.import_module("app.api.v1.admin").router, 
+        prefix="/api/v1", 
+        tags=["admin"]
     )
     
     @app.get("/")
@@ -102,10 +117,10 @@ def create_application() -> FastAPI:
         )
         scheduler.start()
         logger.info("Scheduler configurado para actualización diaria a las 00:01 Colombia")
-        
-        # Ejecutar preload inicial en background (sin bloquear startup)
-        asyncio.create_task(preload_stocks_task())
-        logger.info("Preload inicial iniciado en background")
+
+        if settings.ENABLE_STARTUP_PRELOAD:
+            asyncio.create_task(preload_stocks_task())
+            logger.info("Preload inicial iniciado en background")
     
     @app.on_event("shutdown")
     async def shutdown_event():

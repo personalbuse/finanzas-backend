@@ -1,8 +1,11 @@
 import json
 import secrets
+import logging
 from typing import Optional, Dict
 from app.core.redis_client import get_redis_client
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 TTL_SECONDS = 600  # 10 minutos
@@ -24,7 +27,7 @@ class Redis2FAService:
             await client.setex(key, TTL_SECONDS, value)
             return True
         except Exception as e:
-            print(f"Error saving registration data: {e}")
+            logger.exception("Error saving registration data")
             return False
     
     async def generate_and_save_code(self, email: str) -> str:
@@ -97,6 +100,7 @@ class Redis2FAService:
             await client.delete(f"register:attempts:{email}")
             return True
         except Exception:
+            logger.exception("Error clearing registration data")
             return False
     
     async def check_pending_registration(self, email: str) -> bool:

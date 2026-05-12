@@ -90,7 +90,7 @@ async def complete_module(db: AsyncSession, user_id: int) -> User:
     if not user:
         raise CustomException(status_code=404, detail="Usuario no encontrado")
     
-    if user.completed_courses < 3:
+    if user.completed_courses < 6:
         user.completed_courses += 1
         user.current_balance = float(user.current_balance) + 1000
     

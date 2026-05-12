@@ -84,7 +84,6 @@ class CacheService:
             if cache_entry:
                 cache_entry.value = value_str
                 cache_entry.expires_at = expires_at
-                cache_entry.updated_at = datetime.utcnow()
             else:
                 cache_entry = CacheData(
                     key=key,
@@ -98,7 +97,7 @@ class CacheService:
             return True
         except Exception as e:
             await session.rollback()
-            logger.error(f"Error writing to cache for {key}: {str(e)}")
+            logger.exception(f"Error writing to cache for {key}")
             return False
     
     @staticmethod

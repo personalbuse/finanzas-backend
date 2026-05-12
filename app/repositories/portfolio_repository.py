@@ -32,13 +32,14 @@ async def add_stock_to_portfolio(db: AsyncSession, user_id: int, symbol: str,
     existing = await get_portfolio_by_symbol(db, user_id, symbol)
     
     if existing:
-        existing.quantity = float(existing.quantity) + float(quantity)
+        old_quantity = float(existing.quantity)
+        new_quantity = old_quantity + float(quantity)
         existing.average_cost = (
-            (float(existing.average_cost) * float(existing.quantity) + 
+            (float(existing.average_cost) * old_quantity +
              float(price_per_unit) * float(quantity))
-        ) / (float(existing.quantity) + float(quantity))
-        await db.commit()
-        await db.refresh(existing)
+        ) / new_quantity
+        existing.quantity = new_quantity
+        await db.flush()
         return existing
     else:
         portfolio = Portfolio(
@@ -48,8 +49,7 @@ async def add_stock_to_portfolio(db: AsyncSession, user_id: int, symbol: str,
             average_cost=price_per_unit
         )
         db.add(portfolio)
-        await db.commit()
-        await db.refresh(portfolio)
+        await db.flush()
         return portfolio
 
 
@@ -68,7 +68,7 @@ async def remove_stock_from_portfolio(db: AsyncSession, user_id: int, symbol: st
     if float(portfolio.quantity) <= 0:
         await db.delete(portfolio)
     
-    await db.commit()
+    await db.flush()
     return True
 
 
@@ -96,15 +96,18 @@ async def create_transaction(db: AsyncSession, user_id: int, symbol: str,
     )
     
     db.add(transaction)
-    await db.commit()
-    await db.refresh(transaction)
+    await db.flush()
     
     return transaction
 
 
-async def get_current_stock_price(db: AsyncSession, user_id: int, symbol: str) -> float:
-    async with FinnhubService() as service:
+async def get_current_stock_price(db: AsyncSession, symbol: str, service: FinnhubService = None) -> float:
+    if service:
         stock_data = await service.get_stock_price(symbol, db)
+        return stock_data["price"]
+
+    async with FinnhubService() as local_service:
+        stock_data = await local_service.get_stock_price(symbol, db)
         return stock_data["price"]
 
 
@@ -115,27 +118,28 @@ async def calculate_portfolio_values(db: AsyncSession, user_id: int) -> dict:
     total_value = 0.0
     stocks = []
     
-    for portfolio in portfolios:
-        current_price = await get_current_stock_price(db, user_id, portfolio.symbol)
-        
-        stock_value = float(portfolio.quantity) * current_price
-        stock_cost = float(portfolio.quantity) * float(portfolio.average_cost)
-        stock_profit = stock_value - stock_cost
-        stock_profit_percent = (stock_profit / stock_cost * 100) if stock_cost > 0 else 0
-        
-        total_cost += stock_cost
-        total_value += stock_value
-        
-        stocks.append({
-            "symbol": portfolio.symbol,
-            "quantity": float(portfolio.quantity),
-            "average_cost": float(portfolio.average_cost),
-            "current_price": current_price,
-            "stock_value": round(stock_value, 2),
-            "stock_cost": round(stock_cost, 2),
-            "stock_profit": round(stock_profit, 2),
-            "stock_profit_percent": round(stock_profit_percent, 2)
-        })
+    async with FinnhubService() as service:
+        for portfolio in portfolios:
+            current_price = await get_current_stock_price(db, portfolio.symbol, service)
+
+            stock_value = float(portfolio.quantity) * current_price
+            stock_cost = float(portfolio.quantity) * float(portfolio.average_cost)
+            stock_profit = stock_value - stock_cost
+            stock_profit_percent = (stock_profit / stock_cost * 100) if stock_cost > 0 else 0
+
+            total_cost += stock_cost
+            total_value += stock_value
+
+            stocks.append({
+                "symbol": portfolio.symbol,
+                "quantity": float(portfolio.quantity),
+                "average_cost": float(portfolio.average_cost),
+                "current_price": current_price,
+                "stock_value": round(stock_value, 2),
+                "stock_cost": round(stock_cost, 2),
+                "stock_profit": round(stock_profit, 2),
+                "stock_profit_percent": round(stock_profit_percent, 2)
+            })
     
     total_profit = total_value - total_cost
     total_profit_percent = (total_profit / total_cost * 100) if total_cost > 0 else 0

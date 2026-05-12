@@ -1,8 +1,25 @@
 import re
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
-from decimal import Decimal
 from datetime import datetime
+
+
+def validate_password_strength(password: str) -> str:
+    errors = []
+    if len(password) < 12:
+        errors.append('12 caracteres')
+    if not re.search(r'[A-Z]', password):
+        errors.append('una mayúscula')
+    if not re.search(r'[a-z]', password):
+        errors.append('una minúscula')
+    if not re.search(r'\d', password):
+        errors.append('un número')
+    if not re.search(r'[@$!%*?&]', password):
+        errors.append('un símbolo')
+
+    if errors:
+        raise ValueError(f'La contraseña debe tener: {", ".join(errors)}')
+    return password
 
 
 class UserCreate(BaseModel):
@@ -14,21 +31,7 @@ class UserCreate(BaseModel):
     @field_validator('password')
     @classmethod
     def validate_password(cls, v: str) -> str:
-        errors = []
-        if len(v) < 12:
-            errors.append('12 caracteres')
-        if not re.search(r'[A-Z]', v):
-            errors.append('una mayúscula')
-        if not re.search(r'[a-z]', v):
-            errors.append('una minúscula')
-        if not re.search(r'\d', v):
-            errors.append('un número')
-        if not re.search(r'[@$!%*?&]', v):
-            errors.append('un símbolo')
-        
-        if errors:
-            raise ValueError(f'La contraseña debe tener: {", ".join(errors)}')
-        return v
+        return validate_password_strength(v)
 
 
 class UserResponse(BaseModel):
@@ -38,6 +41,7 @@ class UserResponse(BaseModel):
     initial_balance: float
     current_balance: float
     completed_courses: int = 0
+    rol: str = "inversor"
     created_at: datetime
     
     class Config:
@@ -64,16 +68,14 @@ class LoginRequest(BaseModel):
 
 
 class BuyRequest(BaseModel):
-    user_id: int
-    symbol: str = Field(..., min_length=1, max_length=10)
-    quantity: float = Field(..., gt=0)
+    symbol: str = Field(..., min_length=1, max_length=10, pattern=r'^[A-Za-z][A-Za-z0-9.\-]{0,9}$')
+    quantity: float = Field(..., gt=0, le=1_000_000)
     currency: str = Field(default="USD")
 
 
 class SellRequest(BaseModel):
-    user_id: int
-    symbol: str = Field(..., min_length=1, max_length=10)
-    quantity: float = Field(..., gt=0)
+    symbol: str = Field(..., min_length=1, max_length=10, pattern=r'^[A-Za-z][A-Za-z0-9.\-]{0,9}$')
+    quantity: float = Field(..., gt=0, le=1_000_000)
 
 
 class PortfolioItem(BaseModel):

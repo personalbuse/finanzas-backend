@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 import logging
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
+from app.core.security import require_admin_api_key
 from app.db.session import get_db
 from app.services.finnhub_service import FinnhubService, preload_stocks_task, preload_all_stocks
 from app.services.exchange_rate_service import ExchangeRateService
@@ -25,7 +26,7 @@ PRELOAD_STOCKS = [
 PRELOAD_VERIFIED = True
 
 
-@router.post("/stocks/preload", tags=["admin"])
+@router.post("/stocks/preload", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     """Endpoint para precargar todos los stocks en cache.
     
@@ -40,7 +41,7 @@ async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     return result
 
 
-@router.post("/stocks/refresh", tags=["admin"])
+@router.post("/stocks/refresh", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def refresh_stocks_background(background_tasks: BackgroundTasks):
     """Endpoint para iniciar actualización de stocks en background.
     
@@ -55,7 +56,7 @@ async def refresh_stocks_background(background_tasks: BackgroundTasks):
     }
 
 
-@router.post("/stocks/refresh-sync", tags=["admin"])
+@router.post("/stocks/refresh-sync", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def refresh_stocks_sync(db: AsyncSession = Depends(get_db)):
     """Endpoint para actualizar stocks de forma síncrona (para testing).
     
@@ -70,8 +71,23 @@ async def refresh_stocks_sync(db: AsyncSession = Depends(get_db)):
 
 
 class BatchStockRequest(BaseModel):
-    symbols: List[str]
-    cache_ttl: int = 86400  # 24 horas por defecto
+    symbols: List[str] = Field(..., min_length=1, max_length=50)
+    cache_ttl: int = Field(default=86400, ge=60, le=86400)
+
+    @field_validator("symbols")
+    @classmethod
+    def validate_symbols(cls, symbols: List[str]) -> List[str]:
+        cleaned = []
+        for symbol in symbols:
+            normalized = symbol.strip().upper()
+            if not normalized or len(normalized) > 10:
+                continue
+            if not all(ch.isalnum() or ch in ".-" for ch in normalized):
+                continue
+            cleaned.append(normalized)
+        if not cleaned:
+            raise ValueError("Debes enviar al menos un símbolo válido")
+        return cleaned
 
 
 @router.post(
@@ -91,7 +107,11 @@ async def get_stocks_batch(
     Escalable para múltiples símbolos.
     """
     results = []
-    unique_symbols = list(set(body.symbols))[:50]  # Máximo 50 símbolos
+    unique_symbols = []
+    for symbol in body.symbols:
+        cleaned = symbol.strip().upper()
+        if cleaned and cleaned not in unique_symbols:
+            unique_symbols.append(cleaned)
     
     async with FinnhubService() as service:
         for symbol in unique_symbols:
@@ -99,11 +119,8 @@ async def get_stocks_batch(
                 stock_data = await service.get_stock_price_batch(symbol, db, body.cache_ttl)
                 results.append(stock_data)
             except Exception as e:
-                # Si falla, continuar con los demás
-                results.append({
-                    "symbol": symbol.upper(),
-                    "error": str(e)
-                })
+                logger.warning(f"No se pudo cargar {symbol}: {e}")
+                results.append(service._get_mock_data(symbol))
     
     return results
 
@@ -168,6 +185,12 @@ async def convert_currency(
     to_currency: str = "COP",
     db: AsyncSession = Depends(get_db)
 ):
+    if amount < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El monto debe ser mayor o igual a cero",
+        )
+
     async with ExchangeRateService() as service:
         converted = await service.convert_currency(amount, from_currency, to_currency, db)
         return converted

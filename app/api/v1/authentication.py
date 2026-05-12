@@ -1,24 +1,29 @@
-import uuid
 import secrets
+import hashlib
+import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.rate_limiter import limiter, auth_rate_limit, get_client_ip
+from app.core.rate_limiter import limiter, auth_rate_limit
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserResponse, Token
-from app.services.auth_service import authenticate_user, create_access_token, get_current_user, get_password_hash, verify_password
-from app.repositories.user_repository import create_user
+from app.schemas.user import UserCreate, UserResponse, validate_password_strength
+from app.services.auth_service import authenticate_user, create_access_token, get_current_user, get_password_hash
 from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 @router.post(
@@ -59,18 +64,22 @@ async def register_init(
     )
     
     if not saved:
+        logger.error("redis_2fa_service.save_registration_data returned False")
         raise HTTPException(
-            status_code=status.HTTP_500_BAD_REQUEST,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al procesar el registro. Intenta de nuevo."
         )
     
     try:
         code = await redis_2fa_service.generate_and_save_code(user_data.email)
-        await email_service.send_verification_code(user_data.email, code)
+        sent = await email_service.send_verification_code(user_data.email, code)
+        if not sent:
+            raise RuntimeError("Verification email was not sent")
     except Exception as e:
+        logger.exception("Error sending registration verification code")
         raise HTTPException(
-            status_code=status.HTTP_500_BAD_REQUEST,
-            detail=f"Error al enviar el código: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al enviar el código. Intenta de nuevo."
         )
     
     return {
@@ -120,7 +129,7 @@ async def register_verify(
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username},
+        data={"sub": user.username, "user_id": user.id, "rol": user.rol},
         expires_delta=access_token_expires
     )
     
@@ -134,6 +143,7 @@ async def register_verify(
             "initial_balance": float(user.initial_balance),
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
+            "rol": user.rol,
             "created_at": str(user.created_at)
         }
     }
@@ -166,11 +176,14 @@ async def resend_code(
     
     try:
         code = await redis_2fa_service.generate_and_save_code(email)
-        await email_service.send_verification_code(email, code)
+        sent = await email_service.send_verification_code(email, code)
+        if not sent:
+            raise RuntimeError("Verification email was not sent")
     except Exception as e:
+        logger.exception("Error resending verification code")
         raise HTTPException(
-            status_code=status.HTTP_500_BAD_REQUEST,
-            detail=f"Error al reenviar el código: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al reenviar el código. Intenta de nuevo."
         )
     
     return {"message": "Nuevo código enviado a tu correo"}
@@ -197,7 +210,7 @@ async def login(
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username},
+        data={"sub": user.username, "user_id": user.id, "rol": user.rol},
         expires_delta=access_token_expires
     )
     
@@ -211,6 +224,7 @@ async def login(
             "initial_balance": float(user.initial_balance),
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
+            "rol": user.rol,
             "created_at": str(user.created_at)
         }
     }
@@ -229,9 +243,10 @@ async def get_profile(
         user = await get_current_user(db, token)
         return user
     except Exception as e:
+        logger.exception("Error getting profile")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Error al obtener perfil: {str(e)}",
+            detail="Credenciales inválidas",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -258,13 +273,19 @@ async def forgot_password(
     
     reset_token = PasswordResetToken(
         user_id=user.id,
-        token=token,
+        token=hash_reset_token(token),
         expires_at=expires_at
     )
     db.add(reset_token)
     await db.commit()
     
-    await email_service.send_password_reset_email(user.email, token)
+    sent = await email_service.send_password_reset_email(user.email, token)
+    if not sent:
+        logger.error("Password reset email was not sent")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo enviar el correo de recuperación"
+        )
     
     return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
 
@@ -280,8 +301,16 @@ async def reset_password(
     new_password: str = Form(...),
     db: AsyncSession = Depends(get_db)
 ):
+    try:
+        validate_password_strength(new_password)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc)
+        )
+
     stmt = select(PasswordResetToken).where(
-        PasswordResetToken.token == token,
+        PasswordResetToken.token == hash_reset_token(token),
         PasswordResetToken.used == False
     )
     result = await db.execute(stmt)
@@ -359,7 +388,12 @@ async def send_verification_code(
     db.add(verification)
     await db.commit()
     
-    await email_service.send_verification_code(user.email, str(code), code_type)
+    sent = await email_service.send_verification_code(user.email, str(code), code_type)
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo enviar el código"
+        )
     
     return {"message": "Código enviado al correo"}
 

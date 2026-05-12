@@ -10,6 +10,7 @@ class EmailService:
     def __init__(self):
         self.resend_api_key = settings.RESEND_API_KEY
         self.frontend_url = settings.FRONTEND_URL
+        self.email_from = settings.EMAIL_FROM or "Simulador Inversiones <onboarding@resend.dev>"
         if self.resend_api_key:
             resend.api_key = self.resend_api_key
 
@@ -22,7 +23,7 @@ class EmailService:
             reset_url = f"{self.frontend_url}/reset-password?token={token}"
             
             response = resend.Emails.send({
-                "from": f"Simulador Inversiones <noreply@{settings.FRONTEND_URL.replace('https://', '')}>",
+                "from": self.email_from,
                 "to": email,
                 "subject": "Restablece tu contraseña - Simulador de Inversiones",
                 "html": f"""
@@ -69,7 +70,7 @@ class EmailService:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to send password reset email: {e}")
+            logger.exception("Failed to send password reset email")
             return False
 
     async def send_verification_code(self, email: str, code: str, code_type: str = "2fa") -> bool:
@@ -81,7 +82,7 @@ class EmailService:
             subject = "Código de verificación - 2FA" if code_type == "2fa" else "Verifica tu correo electrónico"
             
             response = resend.Emails.send({
-                "from": f"Simulador Inversiones <noreply@{settings.FRONTEND_URL.replace('https://', '')}>",
+                "from": self.email_from,
                 "to": email,
                 "subject": subject,
                 "html": f"""
@@ -117,7 +118,7 @@ class EmailService:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to send verification code email: {e}")
+            logger.exception("Failed to send verification code email")
             return False
 
 

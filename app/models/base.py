@@ -16,6 +16,7 @@ class User(Base):
     initial_balance = Column(Numeric(15, 2), default=10000.00)
     current_balance = Column(Numeric(15, 2), default=10000.00)
     completed_courses = Column(Integer, default=0)
+    rol = Column(String(20), default="inversor")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

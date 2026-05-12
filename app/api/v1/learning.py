@@ -36,7 +36,7 @@ async def complete_module_endpoint(
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme)
 ):
-    if module_id not in ["m1", "m2", "m3"]:
+    if module_id not in ["m1", "m2", "m3", "m4", "m5", "m6"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Módulo inválido"

@@ -28,7 +28,7 @@ async def get_redis_client() -> redis.Redis:
             await _redis_client.ping()
             logger.info("Redis connection established")
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+            logger.exception("Failed to connect to Redis")
             _redis_client = None
             
     return _redis_client
@@ -51,7 +51,7 @@ class RedisCache:
         try:
             return await client.get(key)
         except Exception as e:
-            logger.error(f"Redis GET error for {key}: {e}")
+            logger.exception(f"Redis GET error for {key}")
             return None
     
     @staticmethod
@@ -63,7 +63,7 @@ class RedisCache:
             await client.setex(key, ttl_seconds, value)
             return True
         except Exception as e:
-            logger.error(f"Redis SET error for {key}: {e}")
+            logger.exception(f"Redis SET error for {key}")
             return False
     
     @staticmethod
@@ -75,7 +75,7 @@ class RedisCache:
             await client.delete(key)
             return True
         except Exception as e:
-            logger.error(f"Redis DELETE error for {key}: {e}")
+            logger.exception(f"Redis DELETE error for {key}")
             return False
     
     @staticmethod
