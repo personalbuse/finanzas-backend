@@ -130,6 +130,7 @@ def generate_portfolio_pdf(
 
 
 async def generate_report(db, user_id: int):
+    import asyncio
     from sqlalchemy import select
     from app.models.base import User, Portfolio
     from app.services.finnhub_service import FinnhubService
@@ -145,23 +146,35 @@ async def generate_report(db, user_id: int):
     portfolio_result = await db.execute(portfolio_stmt)
     portfolios = portfolio_result.scalars().all()
 
+    price_results = []
+    if portfolios:
+        async with FinnhubService() as service:
+            async def fetch_price(p):
+                current_price_data = await service.get_stock_price(p.symbol, db)
+                current_price = current_price_data.get('price', 0)
+                return p, current_price
+            
+            price_results = await asyncio.gather(
+                *[fetch_price(p) for p in portfolios],
+                return_exceptions=True
+            )
+    
     portfolio_list = []
-    async with FinnhubService() as service:
-        for p in portfolios:
-            current_price_data = await service.get_stock_price(p.symbol, db)
-            current_price = current_price_data.get('price', 0)
-            stock_value = float(p.quantity) * current_price
-            stock_cost = float(p.quantity) * float(p.average_cost)
-
-            portfolio_list.append({
-                'symbol': p.symbol,
-                'quantity': float(p.quantity),
-                'average_cost': float(p.average_cost),
-                'current_price': current_price,
-                'stock_value': stock_value,
-                'stock_cost': stock_cost,
-                'stock_profit': stock_value - stock_cost
-            })
+    for r in price_results:
+        if isinstance(r, Exception):
+            continue
+        p, current_price = r
+        stock_value = float(p.quantity) * current_price
+        stock_cost = float(p.quantity) * float(p.average_cost)
+        portfolio_list.append({
+            'symbol': p.symbol,
+            'quantity': float(p.quantity),
+            'average_cost': float(p.average_cost),
+            'current_price': current_price,
+            'stock_value': stock_value,
+            'stock_cost': stock_cost,
+            'stock_profit': stock_value - stock_cost
+        })
 
     from app.services.exchange_rate_service import ExchangeRateService
     exchange_rate = 3850
@@ -178,5 +191,8 @@ async def generate_report(db, user_id: int):
         'current_balance': float(user.current_balance)
     }
 
-    pdf_bytes = generate_portfolio_pdf(user_data, portfolio_list, exchange_rate)
+    loop = asyncio.get_event_loop()
+    pdf_bytes = await loop.run_in_executor(
+        None, generate_portfolio_pdf, user_data, portfolio_list, exchange_rate
+    )
     return pdf_bytes

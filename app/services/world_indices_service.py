@@ -86,18 +86,22 @@ class WorldIndicesService:
         if cached:
             return cached
         
-        result = []
-        
-        for idx_data in WORLD_INDICES:
+        async def fetch_index(idx_data):
             index_info = await self._get_index_data(idx_data["symbol"], db)
-            result.append({
+            return {
                 "symbol": idx_data["symbol"],
                 "name": idx_data["name"],
                 "country": idx_data["country"],
                 "region": idx_data["region"],
                 "currency": idx_data["currency"],
                 **index_info
-            })
+            }
+        
+        result = await asyncio.gather(
+            *[fetch_index(idx_data) for idx_data in WORLD_INDICES],
+            return_exceptions=True
+        )
+        result = [r for r in result if not isinstance(r, Exception)]
         
         await CacheService.set(
             db, "world_indices", "all",

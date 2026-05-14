@@ -56,11 +56,13 @@ class CacheService:
         if REDIS_AVAILABLE:
             import json
             if isinstance(value, (dict, list)):
-                value_str = json.dumps(value)
+                redis_value = json.dumps(value)
+            elif isinstance(value, str) and value.startswith('{'):
+                redis_value = value
             else:
-                value_str = str(value)
+                redis_value = str(value)
             
-            redis_success = await RedisCache.set_json(key, value if isinstance(value, dict) else json.loads(value) if isinstance(value_str, str) and value_str.startswith('{') else value, ttl_seconds)
+            redis_success = await RedisCache.set(key, redis_value, ttl_seconds)
             if redis_success:
                 logger.info(f"Redis cache set for {key}")
                 return True

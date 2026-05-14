@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from pydantic import BaseModel, Field, field_validator
 import logging
+import asyncio
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.core.security import require_admin_api_key
@@ -105,14 +106,29 @@ async def get_stocks_batch(
         if cleaned and cleaned not in unique_symbols:
             unique_symbols.append(cleaned)
     
+    if not unique_symbols:
+        return results
+    
     async with FinnhubService() as service:
-        for symbol in unique_symbols:
+        async def fetch_stock(symbol):
             try:
-                stock_data = await service.get_stock_price_batch(symbol, db, body.cache_ttl)
-                results.append(stock_data)
+                return await service.get_stock_price_batch(symbol, db, body.cache_ttl)
             except Exception as e:
                 logger.warning(f"No se pudo cargar {symbol}: {e}")
-                results.append(service._get_mock_data(symbol))
+                return service._get_mock_data(symbol)
+        
+        gathered = await asyncio.gather(
+            *[fetch_stock(s) for s in unique_symbols],
+            return_exceptions=True
+        )
+    
+    results = []
+    async with FinnhubService() as service:
+        for r in gathered:
+            if isinstance(r, Exception):
+                results.append(service._get_mock_data("UNKNOWN"))
+            else:
+                results.append(r)
     
     return results
 

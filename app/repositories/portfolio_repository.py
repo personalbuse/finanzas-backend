@@ -107,34 +107,55 @@ async def get_current_stock_price(db: AsyncSession, symbol: str, service: Finnhu
 
 
 async def calculate_portfolio_values(db: AsyncSession, user_id: int) -> dict:
+    import asyncio
     portfolios = await get_portfolio_by_user(db, user_id)
+    
+    if not portfolios:
+        return {
+            "total_cost": 0,
+            "total_value": 0,
+            "total_profit": 0,
+            "total_profit_percent": 0,
+            "stocks": []
+        }
+    
+    async with FinnhubService() as service:
+        async def fetch_stock(portfolio):
+            current_price = await get_current_stock_price(db, portfolio.symbol, service)
+            return portfolio, current_price
+        
+        results = await asyncio.gather(
+            *[fetch_stock(p) for p in portfolios],
+            return_exceptions=True
+        )
     
     total_cost = 0.0
     total_value = 0.0
     stocks = []
     
-    async with FinnhubService() as service:
-        for portfolio in portfolios:
-            current_price = await get_current_stock_price(db, portfolio.symbol, service)
+    for result in results:
+        if isinstance(result, Exception):
+            continue
+        portfolio, current_price = result
+        
+        stock_value = float(portfolio.quantity) * current_price
+        stock_cost = float(portfolio.quantity) * float(portfolio.average_cost)
+        stock_profit = stock_value - stock_cost
+        stock_profit_percent = (stock_profit / stock_cost * 100) if stock_cost > 0 else 0
 
-            stock_value = float(portfolio.quantity) * current_price
-            stock_cost = float(portfolio.quantity) * float(portfolio.average_cost)
-            stock_profit = stock_value - stock_cost
-            stock_profit_percent = (stock_profit / stock_cost * 100) if stock_cost > 0 else 0
+        total_cost += stock_cost
+        total_value += stock_value
 
-            total_cost += stock_cost
-            total_value += stock_value
-
-            stocks.append({
-                "symbol": portfolio.symbol,
-                "quantity": float(portfolio.quantity),
-                "average_cost": float(portfolio.average_cost),
-                "current_price": current_price,
-                "stock_value": round(stock_value, 2),
-                "stock_cost": round(stock_cost, 2),
-                "stock_profit": round(stock_profit, 2),
-                "stock_profit_percent": round(stock_profit_percent, 2)
-            })
+        stocks.append({
+            "symbol": portfolio.symbol,
+            "quantity": float(portfolio.quantity),
+            "average_cost": float(portfolio.average_cost),
+            "current_price": current_price,
+            "stock_value": round(stock_value, 2),
+            "stock_cost": round(stock_cost, 2),
+            "stock_profit": round(stock_profit, 2),
+            "stock_profit_percent": round(stock_profit_percent, 2)
+        })
     
     total_profit = total_value - total_cost
     total_profit_percent = (total_profit / total_cost * 100) if total_cost > 0 else 0

@@ -179,21 +179,47 @@ class ExchangeRateService:
         ]
 
     async def get_multi_exchange_rates(self, pairs: List[tuple], db_session) -> Dict[str, Any]:
-        result = {}
-
-        for from_curr, to_curr in pairs:
-            current_rate = await self.get_exchange_rate(from_curr, to_curr, db_session)
-            await self.save_exchange_rate(from_curr, to_curr, current_rate["rate"], db_session)
-
-            history = await self.get_exchange_history(from_curr, to_curr, 7, db_session)
-
-            result[f"{from_curr}_{to_curr}"] = {
-                "today": current_rate["rate"],
-                "history": history,
-                "timestamp": current_rate["timestamp"]
-            }
-
-        return result
+        async def fetch_rate_only(from_curr, to_curr):
+            try:
+                current_rate = await self.get_exchange_rate(from_curr, to_curr, db_session)
+                return from_curr, to_curr, current_rate, None
+            except Exception as e:
+                logger.error(f"Error fetching {from_curr}/{to_curr}: {e}")
+                return from_curr, to_curr, None, e
+        
+        if pairs:
+            # Step 1: HTTP calls in PARALLEL (no DB writes inside)
+            pair_results = await asyncio.gather(
+                *[fetch_rate_only(fc, tc) for fc, tc in pairs],
+                return_exceptions=True
+            )
+            
+            result = {}
+            # Step 2: DB operations SEQUENTIAL (outside the gather)
+            for pr in pair_results:
+                if isinstance(pr, Exception):
+                    continue
+                from_curr, to_curr, current_rate, error = pr
+                if error or not current_rate:
+                    continue
+                
+                key = f"{from_curr}_{to_curr}"
+                result[key] = {
+                    "today": current_rate["rate"],
+                    "history": [],
+                    "timestamp": current_rate["timestamp"]
+                }
+                
+                # Sequential DB operations (one at a time, no concurrent session access)
+                try:
+                    await self.save_exchange_rate(from_curr, to_curr, current_rate["rate"], db_session)
+                    history = await self.get_exchange_history(from_curr, to_curr, 7, db_session)
+                    result[key]["history"] = history
+                except Exception as e:
+                    logger.warning(f"Error saving history for {key}: {e}")
+            
+            return result
+        return {}
 
 
 EXCHANGE_PAIRS = [
@@ -212,17 +238,39 @@ async def preload_exchange_rates_task():
     try:
         async with AsyncSessionLocal() as db:
             async with ExchangeRateService() as service:
-                for from_curr, to_curr in EXCHANGE_PAIRS:
+                # Step 1: HTTP calls in PARALLEL (fetch rates)
+                async def fetch_rate(from_curr, to_curr):
                     try:
                         rate = await service.get_exchange_rate(from_curr, to_curr, db)
-                        await service.save_exchange_rate(from_curr, to_curr, rate["rate"], db)
-                        logger.info(f"Tasa {from_curr}/{to_curr} pre-cargada: {rate['rate']}")
+                        return from_curr, to_curr, rate, None
                     except Exception as e:
                         logger.error(f"Error pre-cargando {from_curr}/{to_curr}: {e}")
-
+                        return from_curr, to_curr, None, e
+                
+                rate_results = await asyncio.gather(
+                    *[fetch_rate(fc, tc) for fc, tc in EXCHANGE_PAIRS],
+                    return_exceptions=True
+                )
+                
+                # Step 2: DB operations SEQUENTIAL (save to DB one by one)
+                loaded_count = 0
+                for rr in rate_results:
+                    if isinstance(rr, Exception):
+                        continue
+                    from_curr, to_curr, rate_data, error = rr
+                    if error or not rate_data:
+                        continue
+                    
+                    try:
+                        await service.save_exchange_rate(from_curr, to_curr, rate_data["rate"], db)
+                        logger.info(f"Tasa {from_curr}/{to_curr} pre-cargada: {rate_data['rate']}")
+                        loaded_count += 1
+                    except Exception as e:
+                        logger.error(f"Error guardando {from_curr}/{to_curr}: {e}")
+                
                 await db.commit()
-                logger.info("Tarea de preload de tasas de cambio completada")
-                return {"status": "completed", "pairs": len(EXCHANGE_PAIRS)}
+                logger.info(f"Tarea de preload de tasas de cambio completada: {loaded_count}/{len(EXCHANGE_PAIRS)}")
+                return {"status": "completed", "pairs": loaded_count}
     except Exception as e:
         logger.error(f"Error en tarea de preload de tasas de cambio: {e}")
         return {"error": str(e)}
