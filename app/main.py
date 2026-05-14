@@ -87,6 +87,16 @@ def create_application() -> FastAPI:
         prefix="/api/v1",
         tags=["admin"]
     )
+    app.include_router(
+        importlib.import_module("app.api.v1.news").router,
+        prefix="/api/v1/news",
+        tags=["news"]
+    )
+    app.include_router(
+        importlib.import_module("app.api.v1.leaderboard").router,
+        prefix="/api/v1/leaderboard",
+        tags=["leaderboard"]
+    )
     
     @app.get("/")
     async def root():

@@ -1,5 +1,6 @@
 import jwt
 import logging
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
@@ -323,3 +324,34 @@ async def get_transaction_history_legacy(
 ):
     ensure_own_resource(user_id, current_user)
     return await get_my_transaction_history(request, db, current_user, skip, limit)
+
+
+@router.get(
+    "/portfolio/report",
+    tags=["portafolio"],
+)
+@limiter.limit(portfolio_rate_limit)
+async def get_portfolio_report(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    try:
+        from app.services.pdf_report_service import generate_report
+
+        pdf_bytes = await generate_report(db, current_user.id)
+
+        from fastapi.responses import Response
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=portafolio_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.pdf"
+            }
+        )
+    except Exception as e:
+        logger.exception("Error generando PDF")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al generar el reporte PDF"
+        )
