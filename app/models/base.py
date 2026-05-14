@@ -114,3 +114,63 @@ class ExchangeRateHistory(Base):
         UniqueConstraint('from_currency', 'to_currency', 'date', name='unique_rate_date'),
         Index('idx_rate_currencies_date', 'from_currency', 'to_currency', 'date'),
     )
+
+
+class WorldIndex(Base):
+    __tablename__ = "world_indices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(30), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    country = Column(String(3), nullable=False, index=True)
+    region = Column(String(50), nullable=False, index=True)
+    currency = Column(String(3), nullable=False)
+    current_value = Column(Numeric(15, 2), nullable=True)
+    change = Column(Numeric(15, 4), nullable=True)
+    change_percent = Column(Numeric(15, 4), nullable=True)
+    high = Column(Numeric(15, 2), nullable=True)
+    low = Column(Numeric(15, 2), nullable=True)
+    previous_close = Column(Numeric(15, 2), nullable=True)
+    last_updated = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class IndexHistory(Base):
+    __tablename__ = "index_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    index_symbol = Column(String(30), ForeignKey("world_indices.symbol", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    open = Column(Numeric(15, 2), nullable=True)
+    high = Column(Numeric(15, 2), nullable=True)
+    low = Column(Numeric(15, 2), nullable=True)
+    close = Column(Numeric(15, 2), nullable=True)
+    volume = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('index_symbol', 'date', name='unique_index_date'),
+        Index('idx_index_date', 'index_symbol', 'date'),
+    )
+
+
+class InternationalStock(Base):
+    __tablename__ = "international_stocks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(20), unique=True, nullable=False, index=True)
+    name = Column(String(150), nullable=False)
+    exchange = Column(String(50), nullable=False)
+    country = Column(String(3), nullable=False, index=True)
+    region = Column(String(30), nullable=False, index=True)
+    sector = Column(String(50), nullable=True)
+    currency = Column(String(3), nullable=False)
+    current_price = Column(Numeric(15, 4), nullable=True)
+    change = Column(Numeric(15, 4), nullable=True)
+    change_percent = Column(Numeric(15, 4), nullable=True)
+    previous_close = Column(Numeric(15, 4), nullable=True)
+    last_updated = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

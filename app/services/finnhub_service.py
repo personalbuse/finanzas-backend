@@ -51,11 +51,11 @@ class FinnhubService:
             
             if "error" in data:
                 logger.warning(f"Finnhub error para {symbol}: {data.get('error')}")
-                return self._get_fallback_data(symbol, db_session)
-            
+                return await self._get_fallback_data(symbol, db_session)
+
             if data.get("c") == 0 and data.get("d") is None:
                 logger.warning(f"Finnhub sin datos para {symbol}")
-                return self._get_fallback_data(symbol, db_session)
+                return await self._get_fallback_data(symbol, db_session)
             
             dp_value = data.get("dp", 0)
             result = {
@@ -83,7 +83,7 @@ class FinnhubService:
         
         except Exception as e:
             logger.exception(f"Error retrieving stock {symbol}")
-            return self._get_fallback_data(symbol, db_session)
+            return await self._get_fallback_data(symbol, db_session)
     
     async def get_stock_price(self, symbol: str, db_session, ttl_seconds: int = 86400) -> Dict[str, Any]:
         return await self.get_stock_price_batch(symbol, db_session, ttl_seconds)

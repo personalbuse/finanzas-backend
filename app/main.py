@@ -58,28 +58,33 @@ def create_application() -> FastAPI:
     )
     
     app.include_router(
-        importlib.import_module("app.api.v1.authentication").router, 
-        prefix="/api/v1", 
+        importlib.import_module("app.api.v1.authentication").router,
+        prefix="/api/v1",
         tags=["autenticación"]
     )
     app.include_router(
-        importlib.import_module("app.api.v1.stocks").router, 
-        prefix="/api/v1", 
+        importlib.import_module("app.api.v1.world").router,
+        prefix="/api/v1",
+        tags=["world_markets", "indices", "international"]
+    )
+    app.include_router(
+        importlib.import_module("app.api.v1.stocks").router,
+        prefix="/api/v1",
         tags=["acciones", "moneda"]
     )
     app.include_router(
-        importlib.import_module("app.api.v1.portfolio").router, 
-        prefix="/api/v1", 
+        importlib.import_module("app.api.v1.portfolio").router,
+        prefix="/api/v1",
         tags=["portafolio"]
     )
     app.include_router(
-        importlib.import_module("app.api.v1.learning").router, 
-        prefix="/api/v1", 
+        importlib.import_module("app.api.v1.learning").router,
+        prefix="/api/v1",
         tags=["learning"]
     )
     app.include_router(
-        importlib.import_module("app.api.v1.admin").router, 
-        prefix="/api/v1", 
+        importlib.import_module("app.api.v1.admin").router,
+        prefix="/api/v1",
         tags=["admin"]
     )
     
@@ -118,6 +123,8 @@ def create_application() -> FastAPI:
         
         # Configurar APScheduler para actualización diaria a las 00:01 Colombia (UTC 05:01)
         from app.services.finnhub_service import preload_stocks_task
+        from app.services.exchange_rate_service import preload_exchange_rates_task
+
         scheduler.add_job(
             preload_stocks_task,
             'cron',
@@ -125,12 +132,20 @@ def create_application() -> FastAPI:
             minute=1,
             timezone='America/Bogota'
         )
+        scheduler.add_job(
+            preload_exchange_rates_task,
+            'cron',
+            hour=5,
+            minute=5,
+            timezone='America/Bogota'
+        )
         scheduler.start()
         logger.info("Scheduler configurado para actualización diaria a las 00:01 Colombia")
 
         if settings.ENABLE_STARTUP_PRELOAD:
             asyncio.create_task(preload_stocks_task())
-            logger.info("Preload inicial iniciado en background")
+            asyncio.create_task(preload_exchange_rates_task())
+            logger.info("Preload inicial iniciado en background (stocks + tasas de cambio)")
     
     @app.on_event("shutdown")
     async def shutdown_event():

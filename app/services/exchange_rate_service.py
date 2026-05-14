@@ -180,17 +180,49 @@ class ExchangeRateService:
 
     async def get_multi_exchange_rates(self, pairs: List[tuple], db_session) -> Dict[str, Any]:
         result = {}
-        
+
         for from_curr, to_curr in pairs:
             current_rate = await self.get_exchange_rate(from_curr, to_curr, db_session)
             await self.save_exchange_rate(from_curr, to_curr, current_rate["rate"], db_session)
-            
+
             history = await self.get_exchange_history(from_curr, to_curr, 7, db_session)
-            
+
             result[f"{from_curr}_{to_curr}"] = {
                 "today": current_rate["rate"],
                 "history": history,
                 "timestamp": current_rate["timestamp"]
             }
-        
+
         return result
+
+
+EXCHANGE_PAIRS = [
+    ("USD", "COP"), ("EUR", "COP"), ("USD", "MXN"),
+    ("USD", "BRL"), ("USD", "CLP"), ("USD", "PEN"),
+    ("USD", "ARS"), ("EUR", "USD"), ("GBP", "USD"), ("USD", "JPY")
+]
+
+
+async def preload_exchange_rates_task():
+    """Task function for background preload of exchange rates (used by APScheduler and startup)."""
+    from app.db.session import AsyncSessionLocal
+
+    logger.info("Iniciando tarea de preload de tasas de cambio...")
+
+    try:
+        async with AsyncSessionLocal() as db:
+            async with ExchangeRateService() as service:
+                for from_curr, to_curr in EXCHANGE_PAIRS:
+                    try:
+                        rate = await service.get_exchange_rate(from_curr, to_curr, db)
+                        await service.save_exchange_rate(from_curr, to_curr, rate["rate"], db)
+                        logger.info(f"Tasa {from_curr}/{to_curr} pre-cargada: {rate['rate']}")
+                    except Exception as e:
+                        logger.error(f"Error pre-cargando {from_curr}/{to_curr}: {e}")
+
+                await db.commit()
+                logger.info("Tarea de preload de tasas de cambio completada")
+                return {"status": "completed", "pairs": len(EXCHANGE_PAIRS)}
+    except Exception as e:
+        logger.error(f"Error en tarea de preload de tasas de cambio: {e}")
+        return {"error": str(e)}

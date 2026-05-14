@@ -199,10 +199,14 @@ async def get_multi_exchange_rates(
 ):
     async with ExchangeRateService() as service:
         rates = await service.get_multi_exchange_rates(
-            [("USD", "COP"), ("EUR", "COP")],
+            [
+                ("USD", "COP"), ("EUR", "COP"), ("USD", "MXN"),
+                ("USD", "BRL"), ("USD", "CLP"), ("USD", "PEN"),
+                ("USD", "ARS"), ("EUR", "USD"), ("GBP", "USD"), ("USD", "JPY")
+            ],
             db
         )
-        
+
         usd_cop = rates.get("USD_COP", {})
         eur_cop = rates.get("EUR_COP", {})
         
@@ -218,18 +222,34 @@ async def get_multi_exchange_rates(
             old_rate = eur_cop["history"][-2]["rate"]
             new_rate = eur_cop["today"]
             eur_change = ((new_rate - old_rate) / old_rate) * 100
-        
+
+        def calculate_change(pair_data):
+            if pair_data.get("history") and len(pair_data["history"]) >= 2:
+                old = pair_data["history"][-2]["rate"]
+                new = pair_data.get("today", 0)
+                return round(((new - old) / old) * 100, 2) if old else None
+            return None
+
         return {
+            "is_fallback": False,
             "usd_cop": {
                 "rate": usd_cop.get("today"),
-                "change_percent": round(usd_change, 2) if usd_change else None,
+                "change_percent": calculate_change(usd_cop),
                 "history": usd_cop.get("history", []),
                 "timestamp": usd_cop.get("timestamp")
             },
             "eur_cop": {
                 "rate": eur_cop.get("today"),
-                "change_percent": round(eur_change, 2) if eur_change else None,
+                "change_percent": calculate_change(eur_cop),
                 "history": eur_cop.get("history", []),
                 "timestamp": eur_cop.get("timestamp")
-            }
+            },
+            "usd_mxn": rates.get("USD_MXN", {}),
+            "usd_brl": rates.get("USD_BRL", {}),
+            "usd_clp": rates.get("USD_CLP", {}),
+            "usd_pen": rates.get("USD_PEN", {}),
+            "usd_ars": rates.get("USD_ARS", {}),
+            "eur_usd": rates.get("EUR_USD", {}),
+            "gbp_usd": rates.get("GBP_USD", {}),
+            "usd_jpy": rates.get("USD_JPY", {})
         }
