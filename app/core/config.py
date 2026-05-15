@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 current_file_path = Path(__file__).resolve()
-backend_dir = current_file_path.parent.parent.parent.parent
+backend_dir = current_file_path.parent.parent.parent
 env_path = backend_dir / ".env"
 
 class Settings(BaseSettings):
