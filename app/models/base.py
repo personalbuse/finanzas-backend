@@ -155,6 +155,31 @@ class IndexHistory(Base):
     )
 
 
+class AdminLog(Base):
+    __tablename__ = "admin_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    admin_username = Column(String(50), nullable=False)
+    action = Column(String(50), nullable=False, index=True)
+    target_type = Column(String(50), nullable=False)
+    target_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+    admin = relationship("User", foreign_keys=[admin_id])
+
+
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(Text, nullable=False)
+    description = Column(String(255), nullable=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
 class InternationalStock(Base):
     __tablename__ = "international_stocks"
     

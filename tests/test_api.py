@@ -71,3 +71,119 @@ async def test_sell_requires_auth(client: AsyncClient):
         json={"symbol": "AAPL", "quantity": 1},
     )
     assert response.status_code == 401
+
+
+# ── Admin endpoints (auth required) ──
+
+@pytest.mark.asyncio
+async def test_admin_users_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/users")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_user_detail_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/users/1")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_change_role_requires_auth(client: AsyncClient):
+    response = await client.patch("/api/v1/admin/users/1/role", json={"new_role": "admin"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_ban_requires_auth(client: AsyncClient):
+    response = await client.patch("/api/v1/admin/users/1/ban")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_balance_requires_auth(client: AsyncClient):
+    response = await client.patch("/api/v1/admin/users/1/balance", json={"new_balance": 5000})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_kpis_evolution_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/kpis/evolution")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_top_stocks_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/kpis/top-stocks")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_kpis_distribution_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/kpis/distribution")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_logs_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/logs")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_transactions_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/transactions")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_suspicious_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/suspicious-transactions")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_config_list_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/config")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_config_update_requires_auth(client: AsyncClient):
+    response = await client.put("/api/v1/admin/config/maintenance_mode", json={"value": "true"})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_maintenance_requires_auth(client: AsyncClient):
+    response = await client.post("/api/v1/admin/maintenance")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_refresh_stocks_requires_auth(client: AsyncClient):
+    response = await client.post("/api/v1/admin/refresh/stocks")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_refresh_rates_requires_auth(client: AsyncClient):
+    response = await client.post("/api/v1/admin/refresh/rates")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_refresh_indices_requires_auth(client: AsyncClient):
+    response = await client.post("/api/v1/admin/refresh/indices")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_clear_cache_requires_auth(client: AsyncClient):
+    response = await client.post("/api/v1/admin/cache/clear")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_table_stats_requires_auth(client: AsyncClient):
+    response = await client.get("/api/v1/admin/stats/tables")
+    assert response.status_code == 401

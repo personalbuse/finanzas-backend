@@ -12,6 +12,11 @@ from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
 from app.core.redis_client import close_redis_client
 from slowapi.errors import RateLimitExceeded
 
+MAINTENANCE_SKIP_PATHS = {
+    "/health", "/", "/api/v1/login", "/api/v1/register-init", "/api/v1/register-verify",
+    "/api/v1/forgot-password", "/api/v1/reset-password",
+}
+
 if settings.ENVIRONMENT == "production":
     logging.basicConfig(level=logging.WARNING)
 else:
@@ -56,6 +61,28 @@ def create_application() -> FastAPI:
         expose_headers=["Authorization"],
         max_age=3600,
     )
+
+    @app.middleware("http")
+    async def maintenance_middleware(request: Request, call_next):
+        if request.url.path in MAINTENANCE_SKIP_PATHS or request.url.path.startswith("/api/v1/admin"):
+            return await call_next(request)
+
+        if getattr(app.state, "maintenance_mode", False):
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    import jwt
+                    payload = jwt.decode(auth_header[7:], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                    if payload.get("rol") == "admin":
+                        return await call_next(request)
+                except jwt.PyJWTError:
+                    pass
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Sistema en mantenimiento. Intenta más tarde.", "maintenance": True},
+            )
+
+        return await call_next(request)
     
     app.include_router(
         importlib.import_module("app.api.v1.authentication").router,
@@ -122,7 +149,8 @@ def create_application() -> FastAPI:
         return {
             "status": "healthy" if db_status == "connected" else "degraded",
             "database": db_status,
-            "cache": "redis" if settings.REDIS_URL else "postgresql"
+            "cache": "redis" if settings.REDIS_URL else "postgresql",
+            "maintenance_mode": getattr(app.state, "maintenance_mode", False),
         }
     
     @app.on_event("startup")
@@ -130,6 +158,20 @@ def create_application() -> FastAPI:
         logger.info("Starting Simulador de Inversiones API v2.0.0")
         logger.info(f"Environment: {settings.ENVIRONMENT}")
         logger.info(f"Redis: {'enabled' if settings.REDIS_URL else 'disabled (fallback to PostgreSQL)'}")
+        
+        app.state.maintenance_mode = False
+        try:
+            from sqlalchemy import select, text
+            from app.db.session import AsyncSessionLocal
+            from app.models.base import SystemConfig
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(SystemConfig).where(SystemConfig.key == "maintenance_mode"))
+                config = result.scalar_one_or_none()
+                if config and config.value == "true":
+                    app.state.maintenance_mode = True
+                    logger.info("Sistema iniciado en MODO MANTENIMIENTO")
+        except Exception:
+            logger.info("No se pudo leer maintenance_mode de BD, usando default: False")
         
         # Configurar APScheduler para actualización diaria a las 00:01 Colombia (UTC 05:01)
         from app.services.finnhub_service import preload_stocks_task
