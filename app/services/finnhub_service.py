@@ -28,7 +28,9 @@ class FinnhubService:
         if self.http_client:
             await self.http_client.aclose()
     
-    async def get_stock_price_batch(self, symbol: str, db_session, ttl_seconds: int = 86400) -> Dict[str, Any]:
+    async def get_stock_price_batch(self, symbol: str, db_session, ttl_seconds: int = None) -> Dict[str, Any]:
+        if ttl_seconds is None:
+            ttl_seconds = settings.STOCK_CACHE_TTL_SECONDS
         cached = await CacheService.get(db_session, "stock", symbol)
         if cached:
             logger.info(f"Cache hit para {symbol}")
@@ -85,7 +87,9 @@ class FinnhubService:
             logger.exception(f"Error retrieving stock {symbol}")
             return await self._get_fallback_data(symbol, db_session)
     
-    async def get_stock_price(self, symbol: str, db_session, ttl_seconds: int = 86400) -> Dict[str, Any]:
+    async def get_stock_price(self, symbol: str, db_session, ttl_seconds: int = None) -> Dict[str, Any]:
+        if ttl_seconds is None:
+            ttl_seconds = settings.STOCK_CACHE_TTL_SECONDS
         return await self.get_stock_price_batch(symbol, db_session, ttl_seconds)
     
     def _get_mock_data(self, symbol: str) -> Dict[str, Any]:
@@ -233,7 +237,7 @@ async def preload_all_stocks(db_session, batch_size: int = 10, delay_between_bat
     async def load_symbol(symbol: str):
         async with AsyncSessionLocal() as session:
             async with FinnhubService() as service:
-                return await service.get_stock_price_batch(symbol, session, 86400)
+                return await service.get_stock_price_batch(symbol, session)
 
     for i in range(0, len(PRELOAD_STOCKS), batch_size):
         batch = PRELOAD_STOCKS[i:i + batch_size]

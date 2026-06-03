@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     CACHE_TTL_SECONDS: int = 300
+    STOCK_CACHE_TTL_SECONDS: int = 900
     REDIS_URL: str = ""
     RATE_LIMIT_PER_MINUTE: int = 60
     CORS_ORIGINS: str = "*"

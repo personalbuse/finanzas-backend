@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 import importlib
 import logging
@@ -51,6 +52,8 @@ def create_application() -> FastAPI:
         cors_origins = [settings.FRONTEND_URL.rstrip("/")]
     elif settings.CORS_ORIGINS == "*":
         cors_origins = ["*"]
+
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     app.add_middleware(
         CORSMiddleware,

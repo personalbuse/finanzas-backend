@@ -18,12 +18,16 @@ async def get_redis_client() -> redis.Redis:
                 logger.warning("REDIS_URL not configured, using fallback cache")
                 return None
                 
-            _redis_client = redis.from_url(
+            pool = redis.ConnectionPool.from_url(
                 redis_url,
-                encoding="utf-8",
-                decode_responses=True,
+                max_connections=20,
                 socket_connect_timeout=5,
                 socket_timeout=5,
+            )
+            _redis_client = redis.Redis(
+                connection_pool=pool,
+                encoding="utf-8",
+                decode_responses=True,
             )
             await _redis_client.ping()
             logger.info("Redis connection established")
@@ -37,7 +41,7 @@ async def get_redis_client() -> redis.Redis:
 async def close_redis_client():
     global _redis_client
     if _redis_client:
-        await _redis_client.close()
+        await _redis_client.aclose()
         _redis_client = None
         logger.info("Redis connection closed")
 

@@ -7,7 +7,14 @@ if "postgresql" in db_url and "+asyncpg" not in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
 
-engine = create_async_engine(db_url, echo=False)
+engine = create_async_engine(
+    db_url,
+    echo=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
