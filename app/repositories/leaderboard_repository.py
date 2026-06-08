@@ -1,42 +1,21 @@
 from typing import List, Dict, Any
 import logging
-import asyncio
+import json
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import User, Portfolio, Transaction
+from app.models.base import User, Portfolio
+from app.services.cache_service import CacheService
 
 logger = logging.getLogger(__name__)
 
-_leaderboard_cache: Dict[str, Any] = {"data": None, "timestamp": 0}
+CACHE_PREFIX = "leaderboard"
 CACHE_TTL_SECONDS = 300
 
 
-def _get_cache_key() -> str:
-    return "leaderboard:all"
-
-
-def _is_cache_valid() -> bool:
-    if _leaderboard_cache["data"] is None:
-        return False
-    import time
-    return (time.time() - _leaderboard_cache["timestamp"]) < CACHE_TTL_SECONDS
-
-
-def _get_cached_leaderboard() -> List[Dict[str, Any]]:
-    if _is_cache_valid():
-        return _leaderboard_cache["data"]
-    return None
-
-
-def _set_cached_leaderboard(data: List[Dict[str, Any]]) -> None:
-    import time
-    _leaderboard_cache["data"] = data
-    _leaderboard_cache["timestamp"] = time.time()
-
-
 async def get_leaderboard(db: AsyncSession, limit: int = 10) -> List[Dict[str, Any]]:
-    cached = _get_cached_leaderboard()
+    cache_key = f"{CACHE_PREFIX}:all"
+    cached = await CacheService.get(db, CACHE_PREFIX, "all")
     if cached:
         return cached[:limit]
 
@@ -82,7 +61,7 @@ async def get_leaderboard(db: AsyncSession, limit: int = 10) -> List[Dict[str, A
     for i, entry in enumerate(leaderboard):
         entry["rank"] = i + 1
 
-    _set_cached_leaderboard(leaderboard)
+    await CacheService.set(db, CACHE_PREFIX, "all", value=leaderboard, ttl_seconds=CACHE_TTL_SECONDS)
     return leaderboard[:limit]
 
 
@@ -107,6 +86,5 @@ async def get_user_rank(db: AsyncSession, user_id: int) -> Dict[str, Any]:
     }
 
 
-def invalidate_leaderboard_cache() -> None:
-    global _leaderboard_cache
-    _leaderboard_cache = {"data": None, "timestamp": 0}
+async def invalidate_leaderboard_cache(db: AsyncSession) -> None:
+    await CacheService.invalidate_prefix(db, CACHE_PREFIX)
