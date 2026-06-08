@@ -11,7 +11,7 @@ from app.core.exceptions import ForbiddenException
 from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
 from app.models.base import User
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, get_token_from_request
 from app.services.finnhub_service import FinnhubService
 from app.repositories.portfolio_repository import (
     add_stock_to_portfolio,
@@ -27,17 +27,25 @@ from app.schemas.portfolio import PortfolioResponse, TransactionHistory
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login", auto_error=False)
 
 
 async def get_authenticated_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ) -> User:
+    if not token:
+        token = get_token_from_request(request)
     return await get_current_user(db, token)
 
 
-async def get_current_username(token: str = Depends(oauth2_scheme)) -> str:
+async def get_current_username(
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+) -> str:
+    if not token:
+        token = get_token_from_request(request)
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username = payload.get("sub")

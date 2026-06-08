@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: str = ""
     ENABLE_STARTUP_PRELOAD: bool = True
     TRUST_PROXY: bool = False
+    COOKIE_DOMAIN: str = ""
+    COOKIE_SECURE: bool = False
 
     @field_validator("SECRET_KEY")
     @classmethod

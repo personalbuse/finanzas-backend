@@ -2,7 +2,7 @@ import secrets
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,6 +18,8 @@ from app.services.auth_service import (
     decode_token,
     get_current_user,
     get_password_hash,
+    get_token_from_request,
+    get_refresh_token_from_request,
 )
 from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
@@ -26,7 +28,37 @@ from app.services.redis_2fa_service import redis_2fa_service
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login", auto_error=False)
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    secure = settings.COOKIE_SECURE or settings.ENVIRONMENT == "production"
+    domain = settings.COOKIE_DOMAIN or None
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        domain=domain,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        domain=domain,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/v1/refresh-token",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    for cookie in ("access_token", "refresh_token"):
+        response.delete_cookie(key=cookie, path="/")
 
 
 def hash_reset_token(token: str) -> str:
@@ -102,6 +134,7 @@ async def register_init(
 @limiter.limit(auth_rate_limit)
 async def register_verify(
     request: Request,
+    response: Response,
     email: str = Form(...),
     code: str = Form(...),
     db: AsyncSession = Depends(get_db)
@@ -140,6 +173,8 @@ async def register_verify(
         expires_delta=access_token_expires,
     )
     refresh_token = create_refresh_token(user)
+
+    _set_auth_cookies(response, access_token, refresh_token)
     
     return {
         "access_token": access_token,
@@ -205,6 +240,7 @@ async def resend_code(
 @limiter.limit(auth_rate_limit)
 async def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
@@ -223,6 +259,8 @@ async def login(
         expires_delta=access_token_expires,
     )
     refresh_token = create_refresh_token(user)
+
+    _set_auth_cookies(response, access_token, refresh_token)
 
     return {
         "access_token": access_token,
@@ -248,9 +286,18 @@ async def login(
 @limiter.limit("10/minute")
 async def refresh_token_endpoint(
     request: Request,
-    refresh_token: str = Form(...),
+    response: Response,
+    refresh_token: str = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
+    if not refresh_token:
+        try:
+            refresh_token = get_refresh_token_from_request(request)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No refresh token provided",
+            )
     try:
         payload = decode_token(refresh_token, token_type="refresh")
     except Exception as e:
@@ -263,8 +310,13 @@ async def refresh_token_endpoint(
     new_access = create_access_token(
         data={"sub": user.username, "user_id": user.id},
     )
+    new_refresh = create_refresh_token(user)
+
+    _set_auth_cookies(response, new_access, new_refresh)
+
     return {
         "access_token": new_access,
+        "refresh_token": new_refresh,
         "token_type": "bearer",
     }
 
@@ -275,9 +327,12 @@ async def refresh_token_endpoint(
     tags=["autenticación"]
 )
 async def get_profile(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    token: str = Depends(oauth2_scheme)
+    token: str = Depends(oauth2_scheme),
 ):
+    if not token:
+        token = get_token_from_request(request)
     try:
         user = await get_current_user(db, token)
         return user
@@ -487,3 +542,12 @@ async def verify_code(
     await db.commit()
 
     return {"message": "Código verificado exitosamente", "verified": True}
+
+
+@router.post(
+    "/logout",
+    tags=["autenticación"],
+)
+async def logout(response: Response):
+    _clear_auth_cookies(response)
+    return {"message": "Sesión cerrada exitosamente"}

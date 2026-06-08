@@ -5,6 +5,7 @@ from typing import Optional
 
 import bcrypt
 import jwt
+from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
@@ -122,3 +123,23 @@ async def get_current_user(db: AsyncSession, token: str) -> User:
         raise UnauthorizedException("Token revoked (password changed)")
 
     return user
+
+
+def get_token_from_request(request: Request) -> str:
+    auth = request.headers.get("Authorization")
+    if auth and auth.startswith("Bearer "):
+        return auth[7:]
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        return cookie_token
+    raise UnauthorizedException("Not authenticated")
+
+
+def get_refresh_token_from_request(request: Request) -> str:
+    cookie_token = request.cookies.get("refresh_token")
+    if cookie_token:
+        return cookie_token
+    auth = request.headers.get("X-Refresh-Token")
+    if auth:
+        return auth
+    raise UnauthorizedException("No refresh token provided")
