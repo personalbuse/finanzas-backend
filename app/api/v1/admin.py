@@ -26,28 +26,40 @@ class RoleRequest(BaseModel):
     new_role: str = Field(..., pattern="^(inversor|admin)$")
 
 
-class BalanceRequest(BaseModel):
-    new_balance: float = Field(..., ge=0)
+class BalanceAdjustmentRequest(BaseModel):
+    delta: float = Field(...)
+    reason: str = Field(..., min_length=5, max_length=500)
 
 
 class ConfigUpdateRequest(BaseModel):
-    value: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1, max_length=1000)
 
 
-async def require_admin(token: str = Depends(oauth2_scheme)) -> str:
+async def require_admin(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Verify admin role by re-reading the User record from the database.
+    This ensures that demoted admins lose access immediately, not after JWT expiry.
+    """
+    from app.services.auth_service import decode_token, get_current_user
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        if payload.get("rol") != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Acceso solo para administradores",
-            )
-        return payload.get("sub")
-    except jwt.PyJWTError:
+        payload = decode_token(token, token_type="access")
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido",
         )
+
+    result = await db.execute(select(User).where(User.username == payload.get("sub")))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active or user.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso solo para administradores",
+        )
+    return user
 
 
 async def _get_admin_user(username: str, db: AsyncSession) -> User:
@@ -98,11 +110,13 @@ async def _ensure_default_configs(db: AsyncSession):
 
 
 @router.get("/admin/users", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def list_users(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
-    skip: int = 0,
-    limit: int = 50,
+    admin: User = Depends(require_admin),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
 ):
     stmt = select(User).offset(skip).limit(limit).order_by(User.created_at.desc())
     result = await db.execute(stmt)
@@ -135,7 +149,7 @@ async def list_users(
 async def get_user_detail(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -193,13 +207,13 @@ async def change_user_role(
     user_id: int,
     body: RoleRequest,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     if admin_user.id == user_id:
         raise HTTPException(status_code=403, detail="No puedes cambiar tu propio rol")
     old_role = user.rol
@@ -219,13 +233,13 @@ async def change_user_role(
 async def toggle_ban_user(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     if admin_user.id == user_id:
         raise HTTPException(status_code=403, detail="No puedes banearte a ti mismo")
     user.is_active = not user.is_active
@@ -242,28 +256,49 @@ async def toggle_ban_user(
 
 
 @router.patch("/admin/users/{user_id}/balance", tags=["admin"])
+@limiter.limit("10/hour")
 async def adjust_balance(
+    request: Request,
     user_id: int,
-    body: BalanceRequest,
+    body: BalanceAdjustmentRequest,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    admin_user = await _get_admin_user(admin, db)
+
     old_balance = float(user.current_balance)
-    user.current_balance = body.new_balance
+    new_balance = old_balance + body.delta
+    if new_balance < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El ajuste resultaría en un balance negativo",
+        )
+    user.current_balance = new_balance
     await _log_admin_action(
-        db, admin_user,
+        db,
+        admin,
         action="balance_adjust",
         target_type="user",
         target_id=user_id,
-        details={"username": user.username, "old_balance": old_balance, "new_balance": body.new_balance},
+        details={
+            "username": user.username,
+            "old_balance": old_balance,
+            "delta": body.delta,
+            "new_balance": new_balance,
+            "reason": body.reason,
+        },
     )
     await db.commit()
-    return {"message": "Saldo actualizado", "user_id": user_id, "new_balance": body.new_balance}
+    return {
+        "message": "Saldo actualizado",
+        "user_id": user_id,
+        "old_balance": old_balance,
+        "delta": body.delta,
+        "new_balance": new_balance,
+    }
 
 
 # ────────────────────────── KPIs ──────────────────────────
@@ -273,7 +308,7 @@ async def adjust_balance(
 async def get_kpis(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     total_users = await db.scalar(select(func.count(User.id)))
     active_users = await db.scalar(select(func.count(User.id)).where(User.is_active == True))
@@ -293,7 +328,7 @@ async def get_kpis(
 @router.get("/admin/kpis/evolution", tags=["admin"])
 async def get_kpis_evolution(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
     days: int = Query(365, ge=1, le=1825),
 ):
     cutoff = datetime.utcnow() - timedelta(days=days)
@@ -335,7 +370,7 @@ async def get_kpis_evolution(
 @router.get("/admin/kpis/top-stocks", tags=["admin"])
 async def get_top_stocks(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
     limit: int = Query(10, ge=1, le=50),
 ):
     top = await db.execute(
@@ -365,7 +400,7 @@ async def get_top_stocks(
 @router.get("/admin/kpis/distribution", tags=["admin"])
 async def get_kpis_distribution(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     type_dist = await db.execute(
         select(
@@ -401,7 +436,7 @@ async def get_kpis_distribution(
 @router.get("/admin/transactions", tags=["admin"])
 async def list_all_transactions(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
     skip: int = 0,
     limit: int = 50,
     user_id: Optional[int] = Query(None),
@@ -451,7 +486,7 @@ async def list_all_transactions(
 @router.get("/admin/suspicious-transactions", tags=["admin"])
 async def get_suspicious_transactions(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
     threshold: float = Query(50000, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -468,6 +503,7 @@ async def get_suspicious_transactions(
         .where(
             and_(
                 User.current_balance > User.initial_balance * 2,
+                User.initial_balance > 0,
                 User.is_active == True,
             )
         )
@@ -508,7 +544,7 @@ async def get_suspicious_transactions(
 @router.get("/admin/logs", tags=["admin"])
 async def get_admin_logs(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
     skip: int = 0,
     limit: int = 50,
     action: Optional[str] = Query(None),
@@ -550,7 +586,7 @@ async def get_admin_logs(
 @router.get("/admin/config", tags=["admin"])
 async def list_configs(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     await _ensure_default_configs(db)
     result = await db.execute(select(SystemConfig).order_by(SystemConfig.key))
@@ -573,9 +609,9 @@ async def update_config(
     key: str,
     body: ConfigUpdateRequest,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     result = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
     config = result.scalar_one_or_none()
     if not config:
@@ -599,9 +635,9 @@ async def update_config(
 async def toggle_maintenance(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
 
     await _ensure_default_configs(db)
     result = await db.execute(select(SystemConfig).where(SystemConfig.key == "maintenance_mode"))
@@ -632,9 +668,9 @@ async def toggle_maintenance(
 @router.post("/admin/refresh/stocks", tags=["admin"])
 async def refresh_stocks(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     from app.services.finnhub_service import preload_stocks_task
     try:
         await preload_stocks_task()
@@ -649,9 +685,9 @@ async def refresh_stocks(
 @router.post("/admin/refresh/rates", tags=["admin"])
 async def refresh_exchange_rates(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     from app.services.exchange_rate_service import preload_exchange_rates_task
     try:
         await preload_exchange_rates_task()
@@ -666,9 +702,9 @@ async def refresh_exchange_rates(
 @router.post("/admin/refresh/indices", tags=["admin"])
 async def refresh_indices(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
+    admin_user = admin
     from app.services.world_indices_service import preload_world_indices
     try:
         await preload_world_indices(db)
@@ -681,31 +717,43 @@ async def refresh_indices(
 
 
 @router.post("/admin/cache/clear", tags=["admin"])
+@limiter.limit("5/hour")
 async def clear_cache(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    admin_user = await _get_admin_user(admin, db)
     from app.core.redis_client import get_redis
+    keys_deleted = 0
     try:
         redis = await get_redis()
         if redis:
-            await redis.flushdb()
+            async for key in redis.scan_iter(match="simulador:*"):
+                await redis.delete(key)
+                keys_deleted += 1
     except Exception:
         logger.warning("Redis no disponible, limpiando solo caché PostgreSQL")
 
-    await db.execute(CacheData.__table__.delete())
+    pg_result = await db.execute(CacheData.__table__.delete())
+    pg_deleted = pg_result.rowcount or 0
 
-    await _log_admin_action(db, admin_user, "clear_cache", "system")
+    await _log_admin_action(
+        db, admin, "clear_cache", "system",
+        details={"redis_keys": keys_deleted, "postgres_keys": pg_deleted},
+    )
     await db.commit()
 
-    return {"message": "Caché limpiada correctamente"}
+    return {
+        "message": "Caché limpiada correctamente",
+        "redis_keys_deleted": keys_deleted,
+        "postgres_keys_deleted": pg_deleted,
+    }
 
 
 @router.get("/admin/stats/tables", tags=["admin"])
 async def get_table_stats(
     db: AsyncSession = Depends(get_db),
-    admin: str = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     tables = {
         "users": User,

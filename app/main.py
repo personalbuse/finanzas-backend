@@ -1,17 +1,19 @@
+import asyncio
+import importlib
+import logging
+from contextlib import asynccontextmanager
+
+import jwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-import importlib
-import logging
-import asyncio
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
 from app.core.redis_client import close_redis_client
-from slowapi.errors import RateLimitExceeded
 
 MAINTENANCE_SKIP_PATHS = {
     "/health", "/", "/api/v1/login", "/api/v1/register-init", "/api/v1/register-verify",
@@ -27,20 +29,76 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan context manager replacing deprecated on_event."""
+    logger.info("Starting Simulador de Inversiones API v2.0.0")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
+    logger.info(f"Redis: {'enabled' if settings.REDIS_URL else 'disabled (fallback to PostgreSQL)'}")
+
+    app.state.maintenance_mode = False
+    try:
+        from sqlalchemy import select
+        from app.db.session import AsyncSessionLocal
+        from app.models.base import SystemConfig
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(SystemConfig).where(SystemConfig.key == "maintenance_mode")
+            )
+            config = result.scalar_one_or_none()
+            if config and config.value == "true":
+                app.state.maintenance_mode = True
+                logger.warning("System started in MAINTENANCE MODE")
+    except Exception:
+        logger.warning("Could not read maintenance_mode from DB, using default: False")
+
+    from app.services.finnhub_service import preload_stocks_task
+    from app.services.exchange_rate_service import preload_exchange_rates_task
+
+    scheduler.add_job(
+        preload_stocks_task,
+        "cron",
+        hour=5,
+        minute=1,
+        timezone="America/Bogota",
+    )
+    scheduler.add_job(
+        preload_exchange_rates_task,
+        "cron",
+        hour=5,
+        minute=5,
+        timezone="America/Bogota",
+    )
+    scheduler.start()
+    logger.info("Scheduler configured for daily update at 00:01 Colombia time")
+
+    if settings.ENABLE_STARTUP_PRELOAD:
+        asyncio.create_task(preload_stocks_task())
+        asyncio.create_task(preload_exchange_rates_task())
+        logger.info("Initial preload started in background (stocks + exchange rates)")
+
+    yield
+
+    scheduler.shutdown()
+    await close_redis_client()
+    logger.info("Application shutdown complete")
+
+
 def create_application() -> FastAPI:
     app = FastAPI(
         title="Simulador de Inversiones API",
         description="API REST para simulador de inversiones en bolsa extranjera",
         version="2.0.0",
-        debug=settings.ENVIRONMENT == "development"
+        debug=settings.ENVIRONMENT == "development",
+        lifespan=lifespan,
     )
-    
+
     app.state.limiter = limiter
-    
+
     @app.exception_handler(RateLimitExceeded)
     async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         return await rate_limit_exceeded_handler(request, exc)
-    
+
     cors_origins = [
         "http://localhost:5173",
         "http://localhost:3000",
@@ -48,95 +106,116 @@ def create_application() -> FastAPI:
     ]
     if settings.CORS_ORIGINS and settings.CORS_ORIGINS != "*":
         cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",")]
-    elif settings.ENVIRONMENT == "production":
+    elif settings.ENVIRONMENT == "production" and settings.FRONTEND_URL:
         cors_origins = [settings.FRONTEND_URL.rstrip("/")]
     elif settings.CORS_ORIGINS == "*":
         cors_origins = ["*"]
-
-    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=cors_origins != ["*"],
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Accept-Language"],
         expose_headers=["Authorization"],
         max_age=3600,
     )
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+        )
+        if settings.ENVIRONMENT == "production":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
 
     @app.middleware("http")
     async def maintenance_middleware(request: Request, call_next):
-        if request.url.path in MAINTENANCE_SKIP_PATHS or request.url.path.startswith("/api/v1/admin"):
+        if (
+            request.url.path in MAINTENANCE_SKIP_PATHS
+            or request.url.path.startswith("/api/v1/admin/maintenance")
+        ):
             return await call_next(request)
 
         if getattr(app.state, "maintenance_mode", False):
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
                 try:
-                    import jwt
-                    payload = jwt.decode(auth_header[7:], settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                    payload = jwt.decode(
+                        auth_header[7:],
+                        settings.SECRET_KEY,
+                        algorithms=[settings.ALGORITHM],
+                        audience=settings.JWT_AUDIENCE,
+                        issuer=settings.JWT_ISSUER,
+                    )
                     if payload.get("rol") == "admin":
                         return await call_next(request)
                 except jwt.PyJWTError:
                     pass
             return JSONResponse(
                 status_code=503,
-                content={"detail": "Sistema en mantenimiento. Intenta más tarde.", "maintenance": True},
+                content={
+                    "detail": "Sistema en mantenimiento. Intenta más tarde.",
+                    "maintenance": True,
+                },
             )
 
         return await call_next(request)
-    
+
     app.include_router(
         importlib.import_module("app.api.v1.authentication").router,
         prefix="/api/v1",
-        tags=["autenticación"]
+        tags=["autenticación"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.world").router,
         prefix="/api/v1",
-        tags=["world_markets", "indices", "international"]
+        tags=["world_markets", "indices", "international"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.stocks").router,
         prefix="/api/v1",
-        tags=["acciones", "moneda"]
+        tags=["acciones", "moneda"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.portfolio").router,
         prefix="/api/v1",
-        tags=["portafolio"]
+        tags=["portafolio"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.learning").router,
         prefix="/api/v1",
-        tags=["learning"]
+        tags=["learning"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.admin").router,
         prefix="/api/v1",
-        tags=["admin"]
+        tags=["admin"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.news").router,
         prefix="/api/v1/news",
-        tags=["news"]
+        tags=["news"],
     )
     app.include_router(
         importlib.import_module("app.api.v1.leaderboard").router,
         prefix="/api/v1/leaderboard",
-        tags=["leaderboard"]
+        tags=["leaderboard"],
     )
-    
+
     @app.get("/")
     async def root():
-        return {
-            "message": "Simulador de Inversiones API",
-            "version": "2.0.0",
-            "status": "running",
-            "features": ["rate_limiting", "redis_cache"]
-        }
-    
+        return {"status": "ok"}
+
     @app.get("/health")
     async def health_check():
         db_status = "disconnected"
@@ -148,66 +227,14 @@ def create_application() -> FastAPI:
                 db_status = "connected"
         except Exception:
             db_status = "disconnected"
-        
+
         return {
             "status": "healthy" if db_status == "connected" else "degraded",
             "database": db_status,
             "cache": "redis" if settings.REDIS_URL else "postgresql",
             "maintenance_mode": getattr(app.state, "maintenance_mode", False),
         }
-    
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("Starting Simulador de Inversiones API v2.0.0")
-        logger.info(f"Environment: {settings.ENVIRONMENT}")
-        logger.info(f"Redis: {'enabled' if settings.REDIS_URL else 'disabled (fallback to PostgreSQL)'}")
-        
-        app.state.maintenance_mode = False
-        try:
-            from sqlalchemy import select, text
-            from app.db.session import AsyncSessionLocal
-            from app.models.base import SystemConfig
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(SystemConfig).where(SystemConfig.key == "maintenance_mode"))
-                config = result.scalar_one_or_none()
-                if config and config.value == "true":
-                    app.state.maintenance_mode = True
-                    logger.info("Sistema iniciado en MODO MANTENIMIENTO")
-        except Exception:
-            logger.info("No se pudo leer maintenance_mode de BD, usando default: False")
-        
-        # Configurar APScheduler para actualización diaria a las 00:01 Colombia (UTC 05:01)
-        from app.services.finnhub_service import preload_stocks_task
-        from app.services.exchange_rate_service import preload_exchange_rates_task
 
-        scheduler.add_job(
-            preload_stocks_task,
-            'cron',
-            hour=5,
-            minute=1,
-            timezone='America/Bogota'
-        )
-        scheduler.add_job(
-            preload_exchange_rates_task,
-            'cron',
-            hour=5,
-            minute=5,
-            timezone='America/Bogota'
-        )
-        scheduler.start()
-        logger.info("Scheduler configurado para actualización diaria a las 00:01 Colombia")
-
-        if settings.ENABLE_STARTUP_PRELOAD:
-            asyncio.create_task(preload_stocks_task())
-            asyncio.create_task(preload_exchange_rates_task())
-            logger.info("Preload inicial iniciado en background (stocks + tasas de cambio)")
-    
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        scheduler.shutdown()
-        await close_redis_client()
-        logger.info("Application shutdown complete")
-    
     return app
 
 

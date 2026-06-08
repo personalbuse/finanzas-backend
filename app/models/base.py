@@ -18,6 +18,7 @@ class User(Base):
     completed_courses = Column(Integer, default=0)
     rol = Column(String(20), default="inversor", index=True)
     is_active = Column(Boolean, default=True, index=True)
+    password_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
@@ -54,8 +55,12 @@ class Transaction(Base):
     total_amount = Column(Numeric(15, 2), nullable=False)
     currency = Column(String(3), default="USD")
     created_at = Column(DateTime, default=func.now(), index=True)
-    
+
     user = relationship("User", back_populates="transactions")
+
+    __table_args__ = (
+        Index("ix_transactions_user_created", "user_id", "created_at"),
+    )
 
 
 class CacheData(Base):
@@ -178,6 +183,21 @@ class SystemConfig(Base):
     value = Column(Text, nullable=False)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class CompletedModule(Base):
+    """Idempotency table: each user can only complete a given module once."""
+
+    __tablename__ = "completed_modules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    module_id = Column(String(10), nullable=False)
+    completed_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "module_id", name="uq_completed_user_module"),
+    )
 
 
 class InternationalStock(Base):

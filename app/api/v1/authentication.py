@@ -11,7 +11,14 @@ from app.core.config import settings
 from app.core.rate_limiter import limiter, auth_rate_limit
 from app.db.session import get_db
 from app.schemas.user import UserCreate, UserResponse, validate_password_strength
-from app.services.auth_service import authenticate_user, create_access_token, get_current_user, get_password_hash
+from app.services.auth_service import (
+    authenticate_user,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_current_user,
+    get_password_hash,
+)
 from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
@@ -119,22 +126,24 @@ async def register_verify(
         email=email,
         hashed_password=reg_data["hashed_password"],
         initial_balance=10000.00,
-        current_balance=10000.00
+        current_balance=10000.00,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    
+
     await redis_2fa_service.clear_registration_data(email)
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "user_id": user.id, "rol": user.rol},
-        expires_delta=access_token_expires
+        data={"sub": user.username, "user_id": user.id},
+        expires_delta=access_token_expires,
     )
+    refresh_token = create_refresh_token(user)
     
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": {
             "id": user.id,
@@ -144,20 +153,20 @@ async def register_verify(
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
             "rol": user.rol,
-            "created_at": str(user.created_at)
-        }
+            "created_at": str(user.created_at),
+        },
     }
 
 
 @router.post(
     "/resend-code",
-    tags=["autenticación"]
+    tags=["autenticación"],
 )
 @limiter.limit(auth_rate_limit)
 async def resend_code(
     request: Request,
     email: str = Form(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
@@ -210,12 +219,14 @@ async def login(
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username, "user_id": user.id, "rol": user.rol},
-        expires_delta=access_token_expires
+        data={"sub": user.username, "user_id": user.id},
+        expires_delta=access_token_expires,
     )
-    
+    refresh_token = create_refresh_token(user)
+
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": {
             "id": user.id,
@@ -225,8 +236,36 @@ async def login(
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
             "rol": user.rol,
-            "created_at": str(user.created_at)
-        }
+            "created_at": str(user.created_at),
+        },
+    }
+
+
+@router.post(
+    "/refresh-token",
+    tags=["autenticación"],
+)
+@limiter.limit("10/minute")
+async def refresh_token_endpoint(
+    request: Request,
+    refresh_token: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_token(refresh_token, token_type="refresh")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        ) from e
+
+    user = await get_current_user(db, refresh_token)
+    new_access = create_access_token(
+        data={"sub": user.username, "user_id": user.id},
+    )
+    return {
+        "access_token": new_access,
+        "token_type": "bearer",
     }
 
 
@@ -339,109 +378,112 @@ async def reset_password(
         )
     
     user.hashed_password = get_password_hash(new_password)
+    user.password_version = (user.password_version or 0) + 1
     reset_token.used = True
     await db.commit()
-    
+
     return {"message": "Contraseña actualizada exitosamente"}
 
 
 @router.post(
     "/send-verification-code",
-    tags=["autenticación"]
+    tags=["autenticación"],
 )
-@limiter.limit(auth_rate_limit)
+@limiter.limit("3/minute")
 async def send_verification_code(
     request: Request,
     email: str = Form(...),
     code_type: str = Form("2fa"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
+    """
+    Send a verification code. The response is intentionally generic to prevent
+    account enumeration attacks. Auth is not required because this is part of
+    the login/2FA flow itself.
+    """
     stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado"
-        )
-    
+        return {"message": "Si el correo existe, recibirás un código de verificación"}
+
+    if not user.is_active:
+        return {"message": "Si el correo existe, recibirás un código de verificación"}
+
     code = secrets.randbelow(900000) + 100000
     expires_at = datetime.utcnow() + timedelta(minutes=10)
-    
+
     stmt_del = select(VerificationCode).where(
         VerificationCode.user_id == user.id,
         VerificationCode.code_type == code_type,
-        VerificationCode.used == False
+        VerificationCode.used == False,
     )
     result_del = await db.execute(stmt_del)
     old_codes = result_del.scalars().all()
     for old_code in old_codes:
         old_code.used = True
-    
+
     verification = VerificationCode(
         user_id=user.id,
         code=str(code),
         code_type=code_type,
-        expires_at=expires_at
+        expires_at=expires_at,
     )
     db.add(verification)
     await db.commit()
-    
+
     sent = await email_service.send_verification_code(user.email, str(code), code_type)
     if not sent:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo enviar el código"
-        )
-    
-    return {"message": "Código enviado al correo"}
+        logger.error("Verification code email was not sent")
+
+    return {"message": "Si el correo existe, recibirás un código de verificación"}
 
 
 @router.post(
     "/verify-code",
-    tags=["autenticación"]
+    tags=["autenticación"],
 )
-@limiter.limit(auth_rate_limit)
+@limiter.limit("10/minute")
 async def verify_code(
     request: Request,
     email: str = Form(...),
     code: str = Form(...),
     code_type: str = Form("2fa"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Código inválido o expirado",
         )
-    
+
     stmt_code = select(VerificationCode).where(
         VerificationCode.user_id == user.id,
         VerificationCode.code == code,
         VerificationCode.code_type == code_type,
-        VerificationCode.used == False
+        VerificationCode.used == False,
     )
     result_code = await db.execute(stmt_code)
     verification = result_code.scalar_one_or_none()
-    
-    if not verification:
+
+    if not verification or verification.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Código inválido"
+            detail="Código inválido o expirado",
         )
-    
-    if verification.expires_at < datetime.utcnow():
+
+    if verification.attempts >= 3:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El código ha expirado"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos. Solicita un nuevo código.",
         )
-    
+    verification.attempts = (verification.attempts or 0) + 1
     verification.used = True
     await db.commit()
-    
+
     return {"message": "Código verificado exitosamente", "verified": True}

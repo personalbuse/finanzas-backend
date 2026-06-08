@@ -1,2 +1,29 @@
+[project]
+name = "simulador-inversiones-api"
+version = "2.0.0"
+requires-python = ">=3.12"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "*/migrations/*"]

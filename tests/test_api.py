@@ -15,8 +15,7 @@ async def test_root_endpoint(client: AsyncClient):
     response = await client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert "version" in data
-    assert data["status"] == "running"
+    assert data["status"] == "ok"
 
 
 @pytest.mark.asyncio
