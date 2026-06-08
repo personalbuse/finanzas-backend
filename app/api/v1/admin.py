@@ -723,10 +723,10 @@ async def clear_cache(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    from app.core.redis_client import get_redis
+    from app.core.redis_client import get_redis_client
     keys_deleted = 0
     try:
-        redis = await get_redis()
+        redis = await get_redis_client()
         if redis:
             async for key in redis.scan_iter(match="simulador:*"):
                 await redis.delete(key)
@@ -755,15 +755,20 @@ async def get_table_stats(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    tables = {
-        "users": User,
-        "transactions": Transaction,
-        "portfolios": Portfolio,
-        "admin_logs": AdminLog,
-        "cache_data": CacheData,
-    }
+    tables = [
+        ("users", User),
+        ("transactions", Transaction),
+        ("portfolios", Portfolio),
+        ("admin_logs", AdminLog),
+        ("cache_data", CacheData),
+    ]
     stats = []
-    for name, model in tables.items():
-        count = await db.scalar(select(func.count(model.id)))
+    for name, model in tables:
+        col = getattr(model, "id", None)
+        if col is not None:
+            count = await db.scalar(select(func.count(col)))
+        else:
+            result = await db.execute(select(func.count()).select_from(model))
+            count = result.scalar()
         stats.append({"table": name, "records": count or 0})
     return {"tables": stats}
