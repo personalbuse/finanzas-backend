@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
+from pydantic import SecretStr
 
 
 class TestEmailService:
@@ -73,7 +74,7 @@ class TestEmailService:
 
     def test_email_from_default(self):
         from app.services.email_service import EmailService
-        with patch("app.services.email_service.settings.RESEND_API_KEY", "key"):
+        with patch("app.services.email_service.settings.RESEND_API_KEY", SecretStr("key")):
             with patch("app.services.email_service.settings.EMAIL_FROM", None):
                 service = EmailService()
                 assert service.email_from == "Simulador Inversiones <onboarding@resend.dev>"

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 
+from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.db.session import get_db
 from app.core.exceptions import CustomException
 from app.services.world_indices_service import WorldIndicesService, preload_world_indices
@@ -12,7 +13,9 @@ router = APIRouter()
 
 
 @router.get("/indices")
+@limiter.limit(stocks_rate_limit)
 async def get_world_indices(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     region: Optional[str] = Query(None, description="Filter by region: North America, South America, Europe, Asia, Oceania, Global")
 ):
@@ -25,7 +28,9 @@ async def get_world_indices(
 
 
 @router.get("/indices/{symbol}")
+@limiter.limit(stocks_rate_limit)
 async def get_index_by_symbol(
+    request: Request,
     symbol: str,
     db: AsyncSession = Depends(get_db)
 ):
@@ -46,7 +51,9 @@ async def preload_indices(
 
 
 @router.get("/stocks/international")
+@limiter.limit(stocks_rate_limit)
 async def get_international_stocks(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     region: Optional[str] = Query(None, description="Filter by region")
 ):
@@ -64,7 +71,9 @@ async def get_international_stocks(
 
 
 @router.get("/stocks/international/{country}")
+@limiter.limit(stocks_rate_limit)
 async def get_stocks_by_country(
+    request: Request,
     country: str,
     db: AsyncSession = Depends(get_db)
 ):
@@ -96,7 +105,10 @@ async def preload_int_stocks(
 
 
 @router.get("/markets/regions")
-async def get_regions():
+@limiter.limit(stocks_rate_limit)
+async def get_regions(
+    request: Request,
+):
     return {
         "regions": [
             {"id": "north_america", "name": "North America", "countries": ["US", "MX"]},

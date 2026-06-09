@@ -10,7 +10,7 @@ from sqlalchemy import select, func, text, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.rate_limiter import limiter, portfolio_rate_limit
+from app.core.rate_limiter import limiter, portfolio_rate_limit, general_rate_limit
 from app.db.session import get_db
 from app.models.base import User, Transaction, AdminLog, SystemConfig, CacheData, Portfolio
 from app.repositories.portfolio_repository import calculate_portfolio_values
@@ -146,7 +146,9 @@ async def list_users(
 
 
 @router.get("/admin/users/{user_id}", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_user_detail(
+    request: Request,
     user_id: int,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -203,7 +205,9 @@ async def get_user_detail(
 
 
 @router.patch("/admin/users/{user_id}/role", tags=["admin"])
+@limiter.limit("10/minute")
 async def change_user_role(
+    request: Request,
     user_id: int,
     body: RoleRequest,
     db: AsyncSession = Depends(get_db),
@@ -230,7 +234,9 @@ async def change_user_role(
 
 
 @router.patch("/admin/users/{user_id}/ban", tags=["admin"])
+@limiter.limit("10/minute")
 async def toggle_ban_user(
+    request: Request,
     user_id: int,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -305,6 +311,7 @@ async def adjust_balance(
 
 
 @router.get("/admin/kpis", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_kpis(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -326,7 +333,9 @@ async def get_kpis(
 
 
 @router.get("/admin/kpis/evolution", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_kpis_evolution(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
     days: int = Query(365, ge=1, le=1825),
@@ -368,7 +377,9 @@ async def get_kpis_evolution(
 
 
 @router.get("/admin/kpis/top-stocks", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_top_stocks(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
     limit: int = Query(10, ge=1, le=50),
@@ -398,7 +409,9 @@ async def get_top_stocks(
 
 
 @router.get("/admin/kpis/distribution", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_kpis_distribution(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -434,7 +447,9 @@ async def get_kpis_distribution(
 
 
 @router.get("/admin/transactions", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def list_all_transactions(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
     skip: int = 0,
@@ -484,7 +499,9 @@ async def list_all_transactions(
 
 
 @router.get("/admin/suspicious-transactions", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_suspicious_transactions(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
     threshold: float = Query(50000, ge=0),
@@ -498,6 +515,7 @@ async def get_suspicious_transactions(
     )
     large_tx = large_tx_result.scalars().all()
 
+    safe_div = User.current_balance / func.nullif(User.initial_balance, 0)
     suspicious_users_result = await db.execute(
         select(User)
         .where(
@@ -507,7 +525,7 @@ async def get_suspicious_transactions(
                 User.is_active == True,
             )
         )
-        .order_by((User.current_balance / User.initial_balance).desc())
+        .order_by(safe_div.desc().nullslast())
         .limit(limit)
     )
     suspicious_users = suspicious_users_result.scalars().all()
@@ -531,7 +549,7 @@ async def get_suspicious_transactions(
                 "username": u.username,
                 "current_balance": float(u.current_balance),
                 "initial_balance": float(u.initial_balance),
-                "growth_multiplier": round(float(u.current_balance) / float(u.initial_balance), 2),
+                "growth_multiplier": round(float(u.current_balance) / float(u.initial_balance), 2) if float(u.initial_balance) > 0 else 1.0,
             }
             for u in suspicious_users
         ],
@@ -542,7 +560,9 @@ async def get_suspicious_transactions(
 
 
 @router.get("/admin/logs", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_admin_logs(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
     skip: int = 0,
@@ -584,7 +604,9 @@ async def get_admin_logs(
 
 
 @router.get("/admin/config", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def list_configs(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -605,7 +627,9 @@ async def list_configs(
 
 
 @router.put("/admin/config/{key}", tags=["admin"])
+@limiter.limit("10/minute")
 async def update_config(
+    request: Request,
     key: str,
     body: ConfigUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -632,6 +656,7 @@ async def update_config(
 
 
 @router.post("/admin/maintenance", tags=["admin"])
+@limiter.limit("5/minute")
 async def toggle_maintenance(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -666,7 +691,9 @@ async def toggle_maintenance(
 
 
 @router.post("/admin/refresh/stocks", tags=["admin"])
+@limiter.limit("5/minute")
 async def refresh_stocks(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -683,7 +710,9 @@ async def refresh_stocks(
 
 
 @router.post("/admin/refresh/rates", tags=["admin"])
+@limiter.limit("5/minute")
 async def refresh_exchange_rates(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -700,7 +729,9 @@ async def refresh_exchange_rates(
 
 
 @router.post("/admin/refresh/indices", tags=["admin"])
+@limiter.limit("5/minute")
 async def refresh_indices(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
@@ -751,7 +782,9 @@ async def clear_cache(
 
 
 @router.get("/admin/stats/tables", tags=["admin"])
+@limiter.limit(portfolio_rate_limit)
 async def get_table_stats(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):

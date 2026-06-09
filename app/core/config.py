@@ -1,7 +1,8 @@
 import os
 import secrets
 from pathlib import Path
-from pydantic import Field, field_validator
+from typing import Optional
+from pydantic import Field, field_validator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 current_file_path = Path(__file__).resolve()
@@ -13,9 +14,9 @@ DEFAULT_DEV_SECRET = "super_secret_key_change_in_production"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    EXCHANGE_RATE_API_KEY: str
-    FINNHUB_API_KEY: str
-    SECRET_KEY: str = Field(..., min_length=64)
+    EXCHANGE_RATE_API_KEY: Optional[SecretStr] = None
+    FINNHUB_API_KEY: Optional[SecretStr] = None
+    SECRET_KEY: SecretStr = Field(..., min_length=64)
     JWT_AUDIENCE: str = "simulador-fiup"
     JWT_ISSUER: str = "simulador-fiup-api"
     ALGORITHM: str = "HS256"
@@ -29,16 +30,16 @@ class Settings(BaseSettings):
     REDIS_URL: str = ""
     RATE_LIMIT_PER_MINUTE: int = 60
     CORS_ORIGINS: str = ""
-    RESEND_API_KEY: str = ""
+    RESEND_API_KEY: Optional[SecretStr] = None
     EMAIL_FROM: str = ""
     FRONTEND_URL: str = ""
-    ADMIN_API_KEY: str = ""
+    ADMIN_API_KEY: Optional[SecretStr] = None
     ENABLE_STARTUP_PRELOAD: bool = True
     TRUST_PROXY: bool = False
     COOKIE_DOMAIN: str = ""
     COOKIE_SECURE: bool = False
 
-    @field_validator("SECRET_KEY")
+    @field_validator("SECRET_KEY", mode="before")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
         if v == DEFAULT_DEV_SECRET:
@@ -62,9 +63,9 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("ADMIN_API_KEY")
+    @field_validator("ADMIN_API_KEY", mode="before")
     @classmethod
-    def validate_admin_key(cls, v: str) -> str:
+    def validate_admin_key(cls, v: Optional[str]) -> Optional[str]:
         if v and len(v) < 32:
             raise ValueError("ADMIN_API_KEY must be at least 32 characters")
         return v

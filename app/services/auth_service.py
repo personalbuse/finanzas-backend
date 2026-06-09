@@ -58,7 +58,7 @@ def create_access_token(
     )
     return jwt.encode(
         to_encode,
-        settings.SECRET_KEY,
+        settings.SECRET_KEY.get_secret_value(),
         algorithm=settings.ALGORITHM,
     )
 
@@ -75,7 +75,7 @@ def decode_token(token: str, token_type: str = "access") -> dict:
     try:
         payload = jwt.decode(
             token,
-            settings.SECRET_KEY,
+            settings.SECRET_KEY.get_secret_value(),
             algorithms=[settings.ALGORITHM],
             audience=settings.JWT_AUDIENCE,
             issuer=settings.JWT_ISSUER,

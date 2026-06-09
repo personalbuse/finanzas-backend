@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from pydantic import SecretStr
 
 from app.main import create_application
 from app.core.config import settings
@@ -16,8 +17,8 @@ def override_settings():
     settings.ENVIRONMENT = "test"
     settings.ENABLE_STARTUP_PRELOAD = False
     settings.TRUST_PROXY = False
-    settings.ADMIN_API_KEY = "test-admin-key-12345"
-    settings.SECRET_KEY = "test-secret-key-for-testing-only-1234567890"
+    settings.ADMIN_API_KEY = SecretStr("test-admin-key-12345")
+    settings.SECRET_KEY = SecretStr("test-secret-key-for-testing-only-1234567890")
     settings.REDIS_URL = None
     yield
 
@@ -188,10 +189,8 @@ def test_app(mock_db_session, mock_user, mock_admin_user):
         return current_user_context["user"]
 
     from app.api.v1.portfolio import get_authenticated_user as portfolio_auth
-    from app.api.v1.portfolio import get_current_username as portfolio_username
     from app.api.v1.leaderboard import get_authenticated_user as leaderboard_auth
     app.dependency_overrides[portfolio_auth] = mock_get_authenticated_user
-    app.dependency_overrides[portfolio_username] = lambda: current_user_context["user"].username
 
     yield app, current_user_context, mock_db_session, mock_user, mock_admin_user
 
@@ -212,7 +211,7 @@ async def client(test_app) -> AsyncGenerator:
 async def auth_client(client, test_app):
     app, current_user_context, mock_db_session, mock_user, mock_admin_user = test_app
     client.headers["Authorization"] = "Bearer test-access-token"
-    client.headers["X-Admin-Token"] = settings.ADMIN_API_KEY
+    client.headers["X-Admin-Token"] = settings.ADMIN_API_KEY.get_secret_value()
     return client
 
 

@@ -3,7 +3,6 @@ import importlib
 import logging
 from contextlib import asynccontextmanager
 
-import jwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -77,6 +76,9 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(preload_exchange_rates_task())
         logger.info("Initial preload started in background (stocks + exchange rates)")
 
+    from app.core.api_keys import validate_api_keys
+    validate_api_keys()
+
     yield
 
     scheduler.shutdown()
@@ -147,20 +149,6 @@ def create_application() -> FastAPI:
             return await call_next(request)
 
         if getattr(app.state, "maintenance_mode", False):
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                try:
-                    payload = jwt.decode(
-                        auth_header[7:],
-                        settings.SECRET_KEY,
-                        algorithms=[settings.ALGORITHM],
-                        audience=settings.JWT_AUDIENCE,
-                        issuer=settings.JWT_ISSUER,
-                    )
-                    if payload.get("rol") == "admin":
-                        return await call_next(request)
-                except jwt.PyJWTError:
-                    pass
             return JSONResponse(
                 status_code=503,
                 content={

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     def __init__(self):
-        self.resend_api_key = settings.RESEND_API_KEY
+        self.resend_api_key = settings.RESEND_API_KEY.get_secret_value() if settings.RESEND_API_KEY else ""
         self.frontend_url = settings.FRONTEND_URL
         self.email_from = settings.EMAIL_FROM or "Simulador Inversiones <onboarding@resend.dev>"
         if self.resend_api_key:

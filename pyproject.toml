@@ -23,10 +23,7 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "SIM117", # prefer `a and b` over `a if a else b`
 ]
-per-file-ignores = {
-    "tests/*": ["S101", "S106"],  # allow assert and hardcoded passwords in tests
-    "alembic/*": ["E501", "S101"],
-}
+per-file-ignores = {"tests/*" = ["S101", "S106"], "alembic/*" = ["E501", "S101"]}
 
 [tool.ruff.format]
 quote-style = "double"

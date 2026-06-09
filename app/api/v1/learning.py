@@ -23,7 +23,9 @@ MODULE_BONUS = 1000
     response_model=CourseProgressResponse,
     tags=["learning"],
 )
+@limiter.limit("30/minute")
 async def get_progress(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):

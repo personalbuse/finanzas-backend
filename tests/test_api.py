@@ -93,19 +93,23 @@ class TestAuth:
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_send_verification_code_no_user(self, client: AsyncClient, mock_db_session):
-        mock_db_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+    async def test_send_verification_code_auth_required(self, client: AsyncClient, mock_db_session):
         response = await client.post("/api/v1/send-verification-code", data={"email": "noone@example.com"})
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_send_verification_code_authenticated(self, auth_client: AsyncClient, client: AsyncClient, mock_db_session):
+        response = await auth_client.post("/api/v1/send-verification-code")
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_verify_code_invalid(self, client: AsyncClient, mock_db_session, mock_user):
+    async def test_verify_code_invalid(self, auth_client: AsyncClient, mock_db_session, mock_user):
         mock_db_session.execute = AsyncMock(return_value=MagicMock(
             scalar_one_or_none=MagicMock(side_effect=[mock_user, None])
         ))
-        response = await client.post(
+        response = await auth_client.post(
             "/api/v1/verify-code",
-            data={"email": "test@example.com", "code": "000000"},
+            data={"code": "000000"},
         )
         assert response.status_code == 400
 
