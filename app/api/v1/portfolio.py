@@ -1,4 +1,3 @@
-import jwt
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -6,7 +5,6 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.exceptions import ForbiddenException
 from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
@@ -38,28 +36,6 @@ async def get_authenticated_user(
     if not token:
         token = get_token_from_request(request)
     return await get_current_user(db, token)
-
-
-async def get_current_username(
-    request: Request,
-    token: str = Depends(oauth2_scheme),
-) -> str:
-    if not token:
-        token = get_token_from_request(request)
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Credenciales inválidas",
-            )
-        return username
-    except jwt.PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales inválidas",
-        )
 
 
 def ensure_own_resource(path_user_id: int, current_user: User) -> None:
@@ -120,7 +96,7 @@ async def buy_stock(
     request: Request,
     buy_data: BuyRequest,
     db: AsyncSession = Depends(get_db),
-    current_username: str = Depends(get_current_username),
+    current_user: User = Depends(get_authenticated_user),
 ):
     symbol = buy_data.symbol.upper()
 
@@ -143,7 +119,7 @@ async def buy_stock(
         async with db.begin():
             result = await db.execute(
                 select(User)
-                .where(User.username == current_username)
+                .where(User.id == current_user.id)
                 .with_for_update()
             )
             user = result.scalar_one_or_none()
@@ -205,7 +181,7 @@ async def sell_stock(
     request: Request,
     sell_data: SellRequest,
     db: AsyncSession = Depends(get_db),
-    current_username: str = Depends(get_current_username),
+    current_user: User = Depends(get_authenticated_user),
 ):
     symbol = sell_data.symbol.upper()
 
@@ -229,7 +205,7 @@ async def sell_stock(
         async with db.begin():
             result = await db.execute(
                 select(User)
-                .where(User.username == current_username)
+                .where(User.id == current_user.id)
                 .with_for_update()
             )
             user = result.scalar_one_or_none()

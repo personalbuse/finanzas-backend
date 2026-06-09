@@ -155,12 +155,13 @@ async def register_verify(
             detail="Datos de registro expirados. Por favor regístrate de nuevo."
         )
     
+    initial_balance = float(reg_data.get("initial_balance", 10000.00))
     user = User(
         username=reg_data["username"],
         email=email,
         hashed_password=reg_data["hashed_password"],
-        initial_balance=10000.00,
-        current_balance=10000.00,
+        initial_balance=initial_balance,
+        current_balance=initial_balance,
     )
     db.add(user)
     await db.commit()
@@ -508,27 +509,23 @@ async def reset_password(
     "/send-verification-code",
     tags=["autenticación"],
 )
-@limiter.limit("3/minute")
+@limiter.limit("10/minute")
 async def send_verification_code(
     request: Request,
-    email: str = Form(...),
     code_type: str = Form("2fa"),
     db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
 ):
-    """
-    Send a verification code. The response is intentionally generic to prevent
-    account enumeration attacks. Auth is not required because this is part of
-    the login/2FA flow itself.
-    """
-    stmt = select(User).where(User.email == email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if not user:
-        return {"message": "Si el correo existe, recibirás un código de verificación"}
-
-    if not user.is_active:
-        return {"message": "Si el correo existe, recibirás un código de verificación"}
+    if not token:
+        token = get_token_from_request(request)
+    try:
+        user = await get_current_user(db, token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     code = secrets.randbelow(900000) + 100000
     expires_at = datetime.utcnow() + timedelta(minutes=10)
@@ -556,7 +553,7 @@ async def send_verification_code(
     if not sent:
         logger.error("Verification code email was not sent")
 
-    return {"message": "Si el correo existe, recibirás un código de verificación"}
+    return {"message": "Código de verificación enviado a tu correo"}
 
 
 @router.post(
@@ -566,19 +563,20 @@ async def send_verification_code(
 @limiter.limit("10/minute")
 async def verify_code(
     request: Request,
-    email: str = Form(...),
     code: str = Form(...),
     code_type: str = Form("2fa"),
     db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
 ):
-    stmt = select(User).where(User.email == email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if not user:
+    if not token:
+        token = get_token_from_request(request)
+    try:
+        user = await get_current_user(db, token)
+    except Exception:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Código inválido o expirado",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     stmt_code = select(VerificationCode).where(

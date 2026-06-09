@@ -1,7 +1,10 @@
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
+
+
+USERNAME_PATTERN = r'^[a-z0-9_.-]{3,50}$'
 
 
 def validate_password_strength(password: str) -> str:
@@ -22,11 +25,26 @@ def validate_password_strength(password: str) -> str:
     return password
 
 
+def normalize_username(v: str) -> str:
+    lower = v.lower().strip()
+    if not re.match(USERNAME_PATTERN, lower):
+        raise ValueError(
+            'El nombre de usuario solo puede contener letras minúsculas, '
+            'números, puntos, guiones y guiones bajos (3-50 caracteres)'
+        )
+    return lower
+
+
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    email: str = Field(..., pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+    email: EmailStr
     password: str = Field(..., min_length=12, max_length=100)
     initial_balance: Optional[float] = Field(default=10000.00, ge=1000)
+
+    @field_validator('username')
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        return normalize_username(v)
 
     @field_validator('password')
     @classmethod
@@ -36,9 +54,16 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=50)
-    email: Optional[str] = Field(None, pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+    email: Optional[EmailStr] = None
     current_password: Optional[str] = Field(None, min_length=1)
     new_password: Optional[str] = Field(None, min_length=12, max_length=100)
+
+    @field_validator('username')
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        if v is not None:
+            return normalize_username(v)
+        return v
 
     @field_validator('new_password')
     @classmethod

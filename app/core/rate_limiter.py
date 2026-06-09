@@ -12,13 +12,14 @@ logger = logging.getLogger(__name__)
 
 def get_client_ip(request: Request) -> str:
     """
-    Get the real client IP. Only trusts proxy headers when TRUST_PROXY is enabled
-    AND the request comes from a verified proxy chain (X-Real-IP set by nginx).
+    Get the real client IP. Uses X-Real-IP from nginx when TRUST_PROXY is enabled.
+    Falls back to direct connection IP. Never uses X-Forwarded-For directly
+    to prevent spoofing (only nginx sets X-Real-IP).
     """
-    if settings.TRUST_PROXY and request.headers.get("X-Real-IP"):
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
+    if settings.TRUST_PROXY:
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
     return request.client.host if request.client else "unknown"
 
 
