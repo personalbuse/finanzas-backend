@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /app && chown -R appuser:appuser /app
 
 COPY --from=builder /wheels /wheels
+COPY --from=builder /build/requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 
