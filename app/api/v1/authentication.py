@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.rate_limiter import limiter, auth_rate_limit
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserResponse, validate_password_strength
+from app.schemas.user import UserCreate, UserUpdate, UserResponse, validate_password_strength
 from app.services.auth_service import (
     authenticate_user,
     create_access_token,
@@ -20,6 +20,7 @@ from app.services.auth_service import (
     get_password_hash,
     get_token_from_request,
     get_refresh_token_from_request,
+    verify_password,
 )
 from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
@@ -343,6 +344,69 @@ async def get_profile(
             detail="Credenciales inválidas",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.patch(
+    "/profile",
+    response_model=UserResponse,
+    tags=["autenticación"]
+)
+@limiter.limit("10/minute")
+async def update_profile(
+    request: Request,
+    update_data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    if not token:
+        token = get_token_from_request(request)
+    try:
+        user = await get_current_user(db, token)
+    except Exception as e:
+        logger.exception("Error getting profile for update")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if update_data.username is not None and update_data.username != user.username:
+        stmt = select(User).where(User.username == update_data.username)
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre de usuario ya está en uso"
+            )
+        user.username = update_data.username
+
+    if update_data.email is not None and update_data.email != user.email:
+        stmt = select(User).where(User.email == update_data.email)
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El email ya está en uso"
+            )
+        user.email = update_data.email
+
+    if update_data.new_password is not None:
+        if not update_data.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Se requiere la contraseña actual para cambiarla"
+            )
+        if not verify_password(update_data.current_password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La contraseña actual es incorrecta"
+            )
+        user.hashed_password = get_password_hash(update_data.new_password)
+        user.password_version = (user.password_version or 0) + 1
+
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.post(

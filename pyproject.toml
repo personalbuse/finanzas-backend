@@ -1,35 +1,88 @@
-[project]
-name = "simulador-inversiones-api"
-version = "2.0.0"
-requires-python = ">=3.12"
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "T20", # flake8-print
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate
+    "PL",  # pylint
+    "TRY", # tryceratops
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "SIM117", # prefer `a and b` over `a if a else b`
+]
+per-file-ignores = {
+    "tests/*": ["S101", "S106"],  # allow assert and hardcoded passwords in tests
+    "alembic/*": ["E501", "S101"],
+}
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+import-headings = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCAL"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+sqlalchemy = true
+plugins = ["pydantic.mypy"]
+exclude = ["venv", ".venv", "build", "dist"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --strict-markers --tb=short"
 markers = [
-    "integration: tests that require a real database",
-    "slow: tests that take longer than 5 seconds",
-    "security: tests that verify security properties",
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
 ]
-
-[tool.ruff]
-target-version = "py312"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "S", "B", "SIM"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
-
-[tool.mypy]
-python_version = "3.12"
-strict = false
-ignore_missing_imports = true
-warn_unused_ignores = true
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["tests/*", "*/migrations/*"]
+omit = [
+    "tests/*",
+    "alembic/*",
+    "*/venv/*",
+    "*/.venv/*"
+]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

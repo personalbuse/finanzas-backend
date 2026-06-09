@@ -34,6 +34,20 @@ class UserCreate(BaseModel):
         return validate_password_strength(v)
 
 
+class UserUpdate(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    email: Optional[str] = Field(None, pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+    current_password: Optional[str] = Field(None, min_length=1)
+    new_password: Optional[str] = Field(None, min_length=12, max_length=100)
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        if v:
+            return validate_password_strength(v)
+        return v
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
