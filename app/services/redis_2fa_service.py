@@ -4,6 +4,11 @@ import logging
 from typing import Optional, Dict
 from app.core.redis_client import get_redis_client
 from app.core.config import settings
+from app.core.exceptions import (
+    RedisUnavailableException,
+    InvalidCodeException,
+    MaxAttemptsException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +38,14 @@ class Redis2FAService:
     async def generate_and_save_code(self, email: str) -> str:
         client = await get_redis_client()
         if not client:
-            raise Exception("Redis no disponible")
+            raise RedisUnavailableException("Redis no disponible")
         
         code_key = f"register:code:{email}"
         attempts_key = f"register:attempts:{email}"
         
         attempts = await client.get(attempts_key)
         if attempts and int(attempts) >= MAX_ATTEMPTS:
-            raise Exception("Demasiados intentos. Solicita un nuevo código.")
+            raise MaxAttemptsException("Demasiados intentos. Solicita un nuevo código.")
         
         code = f"{secrets.randbelow(900000) + 100000}"
         
@@ -52,7 +57,7 @@ class Redis2FAService:
     async def verify_code(self, email: str, code: str) -> bool:
         client = await get_redis_client()
         if not client:
-            raise Exception("Redis no disponible")
+            raise RedisUnavailableException("Redis no disponible")
         
         code_key = f"register:code:{email}"
         attempts_key = f"register:attempts:{email}"
@@ -60,7 +65,7 @@ class Redis2FAService:
         stored_code = await client.get(code_key)
         
         if not stored_code:
-            raise Exception("El código ha expirado. Solicita uno nuevo.")
+            raise InvalidCodeException("El código ha expirado. Solicita uno nuevo.")
         
         if stored_code != code:
             attempts = await client.get(attempts_key) or "0"
@@ -69,10 +74,10 @@ class Redis2FAService:
             
             if new_attempts >= MAX_ATTEMPTS:
                 await client.delete(code_key)
-                raise Exception("Demasiados intentos fallidos. Solicita un nuevo código.")
+                raise MaxAttemptsException("Demasiados intentos fallidos. Solicita un nuevo código.")
             
             remaining = MAX_ATTEMPTS - new_attempts
-            raise Exception(f"Código incorrecto. Intentos restantes: {remaining}")
+            raise InvalidCodeException(f"Código incorrecto. Intentos restantes: {remaining}")
         
         await client.delete(code_key)
         await client.delete(attempts_key)

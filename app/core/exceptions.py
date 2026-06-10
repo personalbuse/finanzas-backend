@@ -31,3 +31,23 @@ class ValidationException(CustomException):
 class RateLimitException(CustomException):
     def __init__(self, detail: str = "Límite de requests alcanzado"):
         super().__init__(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail)
+
+
+class Redis2FAException(Exception):
+    """Base exception for 2FA Redis operations"""
+    pass
+
+
+class RedisUnavailableException(Redis2FAException):
+    """Raised when Redis client is not available"""
+    pass
+
+
+class InvalidCodeException(Redis2FAException):
+    """Raised when verification code is invalid or expired"""
+    pass
+
+
+class MaxAttemptsException(Redis2FAException):
+    """Raised when max verification attempts exceeded"""
+    pass
