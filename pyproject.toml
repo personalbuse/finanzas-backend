@@ -54,7 +54,6 @@ line-ending = "lf"
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
-
 [tool.mypy]
 python_version = "3.12"
 warn_return_any = true

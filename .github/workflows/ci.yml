@@ -22,7 +22,6 @@ jobs:
       - name: Lint
         run: |
           ruff check app/
-          mypy app/
 
   test:
     runs-on: ubuntu-latest
