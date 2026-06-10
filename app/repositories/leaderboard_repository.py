@@ -14,7 +14,6 @@ CACHE_TTL_SECONDS = 300
 
 
 async def get_leaderboard(db: AsyncSession, limit: int = 10) -> list[dict[str, Any]]:
-    cache_key = f"{CACHE_PREFIX}:all"
     cached = await CacheService.get(db, CACHE_PREFIX, "all")
     if cached:
         return cached[:limit]
@@ -28,7 +27,7 @@ async def get_leaderboard(db: AsyncSession, limit: int = 10) -> list[dict[str, A
             func.coalesce(func.sum(Portfolio.quantity * Portfolio.average_cost), 0).label('total_cost')
         )
         .outerjoin(Portfolio, User.id == Portfolio.user_id)
-        .where(User.is_active == True, User.rol == "inversor")
+        .where(User.is_active, User.rol == "inversor")
         .group_by(User.id, User.username, User.initial_balance, User.current_balance)
     )
     result = await db.execute(stmt)

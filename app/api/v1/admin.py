@@ -314,7 +314,7 @@ async def get_kpis(
     admin: User = Depends(require_admin),
 ):
     total_users = await db.scalar(select(func.count(User.id)))
-    active_users = await db.scalar(select(func.count(User.id)).where(User.is_active == True))
+    active_users = await db.scalar(select(func.count(User.id)).where(User.is_active))
     admin_count = await db.scalar(select(func.count(User.id)).where(User.rol == "admin"))
     total_transactions = await db.scalar(select(func.count(Transaction.id)))
     total_volume = await db.scalar(select(func.coalesce(func.sum(Transaction.total_amount), 0)))
@@ -518,7 +518,7 @@ async def get_suspicious_transactions(
             and_(
                 User.current_balance > User.initial_balance * 2,
                 User.initial_balance > 0,
-                User.is_active == True,
+                User.is_active,
             )
         )
         .order_by(safe_div.desc().nullslast())
@@ -701,7 +701,7 @@ async def refresh_stocks(
         await db.commit()
         return {"message": "Stocks actualizados correctamente"}
     except Exception as e:
-        logger.error(f"Error refrescando stocks: {e}")
+        logger.exception(f"Error refrescando stocks: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
@@ -720,7 +720,7 @@ async def refresh_exchange_rates(
         await db.commit()
         return {"message": "Tasas de cambio actualizadas correctamente"}
     except Exception as e:
-        logger.error(f"Error refrescando tasas: {e}")
+        logger.exception(f"Error refrescando tasas: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
@@ -739,7 +739,7 @@ async def refresh_indices(
         await db.commit()
         return {"message": "Índices mundiales actualizados correctamente"}
     except Exception as e:
-        logger.error(f"Error refrescando índices: {e}")
+        logger.exception(f"Error refrescando índices: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 

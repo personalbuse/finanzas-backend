@@ -167,7 +167,8 @@ def test_app(mock_db_session, mock_user, mock_admin_user):
 
     # Patch get_current_user everywhere it's imported at module level
     # and also the wrapper dependencies get_authenticated_user
-    mock_get_current_user = lambda db, token: current_user_context["user"]
+    def mock_get_current_user(db, token):  # noqa: ARG001
+        return current_user_context["user"]
 
     auth_patchers = [
         patch(module, side_effect=mock_get_current_user)

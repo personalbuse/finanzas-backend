@@ -27,7 +27,7 @@ PRELOAD_VERIFIED = True
 @router.post("/stocks/preload", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     """Endpoint para precargar todos los stocks en cache.
-    
+
     Versión optimizada con llamadas concurrentes (batch de 10).
     ~20 segundos para 35 stocks en vez de ~35 segundos.
     """
@@ -42,7 +42,7 @@ async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
 @router.post("/stocks/refresh", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def refresh_stocks_background(background_tasks: BackgroundTasks):
     """Endpoint para iniciar actualización de stocks en background.
-    
+
     El usuario no espera - la actualización corre en background.
     Uso desde frontend cuando el usuario entra a la sección de stocks.
     """
@@ -57,7 +57,7 @@ async def refresh_stocks_background(background_tasks: BackgroundTasks):
 @router.post("/stocks/refresh-sync", tags=["admin"], dependencies=[Depends(require_admin_api_key)])
 async def refresh_stocks_sync(db: AsyncSession = Depends(get_db)):
     """Endpoint para actualizar stocks de forma síncrona (para testing).
-    
+
     Retorna cuando completa la actualización (~20 segundos con batch de 10).
     """
     logger.info("Solicitud de refresh síncrona de stocks")
@@ -100,7 +100,7 @@ async def get_stocks_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """Obtiene múltiples acciones en una sola petición.
-    
+
     Usa cache con TTL de 24 horas por defecto.
     Escalable para múltiples símbolos.
     """
@@ -231,18 +231,16 @@ async def get_multi_exchange_rates(
         usd_cop = rates.get("USD_COP", {})
         eur_cop = rates.get("EUR_COP", {})
 
-        usd_change = None
-        eur_change = None
 
         if usd_cop.get("history") and len(usd_cop["history"]) >= 2:
             old_rate = usd_cop["history"][-2]["rate"]
             new_rate = usd_cop["today"]
-            usd_change = ((new_rate - old_rate) / old_rate) * 100
+            ((new_rate - old_rate) / old_rate) * 100
 
         if eur_cop.get("history") and len(eur_cop["history"]) >= 2:
             old_rate = eur_cop["history"][-2]["rate"]
             new_rate = eur_cop["today"]
-            eur_change = ((new_rate - old_rate) / old_rate) * 100
+            ((new_rate - old_rate) / old_rate) * 100
 
         def calculate_change(pair_data):
             if pair_data.get("history") and len(pair_data["history"]) >= 2:

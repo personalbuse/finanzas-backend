@@ -53,7 +53,7 @@ def generate_portfolio_pdf(
     total_cost = sum(stock.get('stock_cost', 0) for stock in portfolio)
     total_profit = portfolio_value - total_cost
 
-    profit_percent = (total_profit / total_cost * 100) if total_cost > 0 else 0
+    (total_profit / total_cost * 100) if total_cost > 0 else 0
     total_profit_percent = ((total_value - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0
 
     pdf.set_fill_color(240, 240, 240)

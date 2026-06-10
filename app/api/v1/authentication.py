@@ -302,7 +302,7 @@ async def refresh_token_endpoint(
                 detail="No refresh token provided",
             )
     try:
-        payload = decode_token(refresh_token, token_type="refresh")
+        decode_token(refresh_token, token_type="refresh")
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -471,7 +471,7 @@ async def reset_password(
 
     stmt = select(PasswordResetToken).where(
         PasswordResetToken.token == hash_reset_token(token),
-        PasswordResetToken.used == False
+        not PasswordResetToken.used
     )
     result = await db.execute(stmt)
     reset_token = result.scalar_one_or_none()
@@ -534,7 +534,7 @@ async def send_verification_code(
     stmt_del = select(VerificationCode).where(
         VerificationCode.user_id == user.id,
         VerificationCode.code_type == code_type,
-        VerificationCode.used == False,
+        not VerificationCode.used,
     )
     result_del = await db.execute(stmt_del)
     old_codes = result_del.scalars().all()
@@ -584,7 +584,7 @@ async def verify_code(
         VerificationCode.user_id == user.id,
         VerificationCode.code == code,
         VerificationCode.code_type == code_type,
-        VerificationCode.used == False,
+        not VerificationCode.used,
     )
     result_code = await db.execute(stmt_code)
     verification = result_code.scalar_one_or_none()

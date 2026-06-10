@@ -169,7 +169,7 @@ class FinnhubService:
                 )
 
             prices = []
-            for i, (date, open_price, high, low, close, volume) in enumerate(
+            for _i, (date, open_price, high, low, close, volume) in enumerate(
                 zip(data.get("t", []), data.get("o", []), data.get("h", []),
                     data.get("l", []), data.get("c", []), data.get("v", []))
             ):
@@ -197,7 +197,7 @@ class FinnhubService:
             return result
 
         except httpx.HTTPError as e:
-            logger.error(f"Error HTTP con Finnhub: {str(e)}")
+            logger.exception(f"Error HTTP con Finnhub: {str(e)}")
             raise CustomException(
                 status_code=503,
                 detail="Error de conexión con Finnhub"
@@ -220,12 +220,12 @@ PRELOAD_STOCKS = [
 
 async def preload_all_stocks(db_session, batch_size: int = 10, delay_between_batches: float = 0.5):
     """Preload all stocks with concurrent calls for optimal performance.
-    
+
     Args:
         db_session: Database session
         batch_size: Number of concurrent API calls (default 10)
         delay_between_batches: Delay between batches in seconds (default 0.5)
-    
+
     Returns:
         dict with loaded and failed counts
     """
@@ -280,5 +280,5 @@ async def preload_stocks_task():
             logger.info(f"Tarea de preload completada: {result}")
             return result
     except Exception as e:
-        logger.error(f"Error en tarea de preload: {e}")
+        logger.exception(f"Error en tarea de preload: {e}")
         return {"error": str(e)}

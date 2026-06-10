@@ -23,7 +23,7 @@ class EmailService:
         try:
             reset_url = f"{self.frontend_url}/reset-password?token={token}"
 
-            response = resend.Emails.send({
+            resend.Emails.send({
                 "from": self.email_from,
                 "to": email,
                 "subject": "Restablece tu contraseña - Simulador de Inversiones",
@@ -39,23 +39,23 @@ class EmailService:
                         <div style="text-align: center; margin-bottom: 24px;">
                             <h1 style="color: #0f172a; font-size: 24px; font-weight: 700; margin: 0;">Simulador de Inversiones</h1>
                         </div>
-                        
+
                         <h2 style="color: #1e293b; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">Restablece tu contraseña</h2>
-                        
+
                         <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">
                             Has solicitado restablecer tu contraseña. Haz clic en el botón de abajo para crear una nueva contraseña.
                         </p>
-                        
+
                         <div style="text-align: center; margin-bottom: 24px;">
                             <a href="{reset_url}" style="display: inline-block; background: #0f172a; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
                                 Restablecer Contraseña
                             </a>
                         </div>
-                        
+
                         <p style="color: #94a3b8; font-size: 12px; line-height: 1.6; margin: 0 0 16px 0;">
                             Este enlace expirará en <strong>1 hora</strong>. Si no solicitaste este cambio, puedes ignorar este correo.
                         </p>
-                        
+
                         <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; margin-top: 24px;">
                             <p style="color: #94a3b8; font-size: 11px; margin: 0;">
                                 Este es un correo automático del Simulador de Inversiones. Por favor no respondas a este mensaje.
@@ -82,7 +82,7 @@ class EmailService:
         try:
             subject = "Código de verificación - 2FA" if code_type == "2fa" else "Verifica tu correo electrónico"
 
-            response = resend.Emails.send({
+            resend.Emails.send({
                 "from": self.email_from,
                 "to": email,
                 "subject": subject,
@@ -98,14 +98,14 @@ class EmailService:
                         <div style="text-align: center; margin-bottom: 24px;">
                             <h1 style="color: #0f172a; font-size: 24px; font-weight: 700; margin: 0;">Simulador de Inversiones</h1>
                         </div>
-                        
+
                         <h2 style="color: #1e293b; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">Tu código de verificación</h2>
-                        
+
                         <div style="background: #f1f5f9; border-radius: 8px; padding: 20px; text-align: center; margin: 24px 0;">
                             <p style="color: #64748b; font-size: 14px; margin: 0 0 12px 0;">Ingresa este código:</p>
                             <p style="color: #0f172a; font-size: 32px; font-weight: 700; margin: 0; letter-spacing: 8px;">{code}</p>
                         </div>
-                        
+
                         <p style="color: #94a3b8; font-size: 12px; margin: 0;">
                             Este código expirará en <strong>10 minutos</strong>.
                         </p>

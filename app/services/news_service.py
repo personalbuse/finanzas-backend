@@ -103,7 +103,7 @@ class NewsService:
             return result
 
         except Exception as e:
-            logger.error(f"Error fetching news: {e}")
+            logger.exception(f"Error fetching news: {e}")
             return MOCK_NEWS[:limit]
 
     async def get_news_by_symbol(self, symbol: str, limit: int = 3) -> list[dict[str, Any]]:
@@ -142,5 +142,5 @@ class NewsService:
             return news_items if news_items else MOCK_NEWS[:limit]
 
         except Exception as e:
-            logger.error(f"Error fetching news for {symbol}: {e}")
+            logger.exception(f"Error fetching news for {symbol}: {e}")
             return MOCK_NEWS[:limit]
