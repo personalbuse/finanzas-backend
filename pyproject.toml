@@ -33,7 +33,6 @@ line-ending = "lf"
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
-import-headings = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCAL"]
 
 [tool.mypy]
 python_version = "3.12"
