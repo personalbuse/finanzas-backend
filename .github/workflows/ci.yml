@@ -41,7 +41,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql+asyncpg://simulator_user:simulator_pass@localhost:5432/simulator_test
-      SECRET_KEY: test-secret-key-not-for-production
+      SECRET_KEY: dGVzdC1zZWNyZXQta2V5LW5vdC1mb3ItcHJvZHVjdGlvbi10ZXN0aW5nLWFhYWFhYQ==
       FINNHUB_API_KEY: test
       EXCHANGE_RATE_API_KEY: test
       ENVIRONMENT: development
