@@ -105,7 +105,7 @@ class TestAuth:
     @pytest.mark.asyncio
     async def test_verify_code_invalid(self, auth_client: AsyncClient, mock_db_session, mock_user):
         mock_db_session.execute = AsyncMock(return_value=MagicMock(
-            scalar_one_or_none=MagicMock(side_effect=[mock_user, None])
+            scalar_one_or_none=MagicMock(return_value=None)
         ))
         response = await auth_client.post(
             "/api/v1/verify-code",
