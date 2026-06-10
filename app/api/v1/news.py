@@ -1,16 +1,16 @@
-from fastapi import APIRouter, Query, Depends
-from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.news_service import NewsService
 from app.db.session import get_db
+from app.services.news_service import NewsService
 
 router = APIRouter()
 
 
 @router.get("")
 async def get_news(
-    category: Optional[str] = Query(None, description="Category: general, forex, crypto, merger"),
+    category: str | None = Query(None, description="Category: general, forex, crypto, merger"),
     limit: int = Query(3, ge=1, le=10),
     db: AsyncSession = Depends(get_db)
 ):

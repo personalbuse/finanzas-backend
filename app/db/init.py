@@ -1,11 +1,11 @@
-import os
-from app.models.base import Base
 from sqlalchemy import text
+
+from app.models.base import Base
 
 
 async def init_db():
     from app.db.session import engine
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import SecretStr
@@ -66,8 +66,7 @@ class TestEmailService:
     # ─── singleton ───
 
     def test_email_service_singleton(self):
-        from app.services.email_service import email_service
-        from app.services.email_service import EmailService
+        from app.services.email_service import EmailService, email_service
         assert isinstance(email_service, EmailService)
 
     # ─── initialization with EMAIL_FROM default ───

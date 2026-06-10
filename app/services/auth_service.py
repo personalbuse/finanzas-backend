@@ -1,7 +1,6 @@
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -9,11 +8,12 @@ from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedException
 from app.models.base import User
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -34,12 +34,12 @@ def get_password_hash(password: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def create_access_token(
     data: dict,
-    expires_delta: Optional[timedelta] = None,
+    expires_delta: timedelta | None = None,
     token_type: str = "access",
 ) -> str:
     to_encode = data.copy()
@@ -87,7 +87,7 @@ def decode_token(token: str, token_type: str = "access") -> dict:
     return payload
 
 
-async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[User]:
+async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
     stmt = select(User).where(User.username == username.lower())
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()

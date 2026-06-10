@@ -5,16 +5,16 @@ Revises: fix_cache_value_type
 Create Date: 2024-01-15 10:00:00.000000
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = 'add_world_markets'
 down_revision: str = 'fix_cache_value_type'
-branch: Union[None, str] = None
-depends_on: Union[None, Sequence[str]] = None
+branch: None | str = None
+depends_on: None | Sequence[str] = None
 
 
 def upgrade() -> None:

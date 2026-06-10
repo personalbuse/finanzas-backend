@@ -1,5 +1,4 @@
 import secrets
-from typing import Optional
 
 from fastapi import Header, HTTPException, status
 
@@ -10,7 +9,7 @@ def _admin_key() -> str:
     return settings.ADMIN_API_KEY.get_secret_value() if settings.ADMIN_API_KEY else ""
 
 
-def require_admin_api_key(x_admin_token: Optional[str] = Header(default=None)) -> None:
+def require_admin_api_key(x_admin_token: str | None = Header(default=None)) -> None:
     key = _admin_key()
     if not key:
         raise HTTPException(

@@ -1,14 +1,13 @@
-from datetime import datetime
-from typing import Dict, Any, Optional, List
 import logging
-import httpx
-import asyncio
+from datetime import datetime
+from typing import Any
 
-from sqlalchemy import select, and_
+import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.cache_service import CacheService
 from app.models.base import InternationalStock
+from app.services.cache_service import CacheService
 
 logger = logging.getLogger(__name__)
 
@@ -121,32 +120,32 @@ class InternationalStocksService:
     def __init__(self):
         self.http_client = None
         self.finnhub_key = None
-    
+
     async def __aenter__(self):
         self.http_client = httpx.AsyncClient(timeout=30.0)
         from app.core.api_keys import ApiKeys
         self.finnhub_key = ApiKeys.FINNHUB
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.http_client:
             await self.http_client.aclose()
-    
-    async def get_stocks_by_region(self, region: str, db: AsyncSession) -> List[Dict[str, Any]]:
+
+    async def get_stocks_by_region(self, region: str, db: AsyncSession) -> list[dict[str, Any]]:
         cached = await CacheService.get(db, "international_stocks", region)
         if cached:
             return cached
-        
+
         country_map = {
             "North America": ["US", "MX"],
             "South America": ["BR", "CO", "CL"],
             "Europe": ["GB", "DE", "FR"],
             "Asia": ["JP", "CN"]
         }
-        
+
         countries = country_map.get(region, [])
         result = []
-        
+
         for country in countries:
             stocks = REGIONAL_STOCKS.get(country, [])
             for stock in stocks:
@@ -157,23 +156,23 @@ class InternationalStocksService:
                     "region": region,
                     **price_data
                 })
-        
+
         await CacheService.set(
             db, "international_stocks", region,
             value=result,
             ttl_seconds=3600
         )
-        
+
         return result
-    
-    async def get_all_regions(self, db: AsyncSession) -> Dict[str, List[Dict[str, Any]]]:
+
+    async def get_all_regions(self, db: AsyncSession) -> dict[str, list[dict[str, Any]]]:
         regions = {
             "North America": ["US", "MX"],
             "South America": ["BR", "CO", "CL"],
             "Europe": ["GB", "DE", "FR"],
             "Asia": ["JP", "CN"]
         }
-        
+
         result = {}
         for region, countries in regions.items():
             stocks = []
@@ -188,13 +187,13 @@ class InternationalStocksService:
                         **price_data
                     })
             result[region] = stocks
-        
+
         return result
-    
-    async def _get_stock_price(self, symbol: str, db: AsyncSession) -> Dict[str, Any]:
+
+    async def _get_stock_price(self, symbol: str, db: AsyncSession) -> dict[str, Any]:
         price = MOCK_PRICES.get(symbol, 100.00)
         change = price * 0.01 * (1 if symbol[0].isalpha() and len(symbol) < 5 else -1)
-        
+
         return {
             "current_price": price,
             "change": round(change, 2),
@@ -202,11 +201,11 @@ class InternationalStocksService:
             "previous_close": price - change,
             "last_updated": datetime.utcnow().isoformat()
         }
-    
-    async def initialize_stocks_db(self, db: AsyncSession) -> Dict[str, Any]:
+
+    async def initialize_stocks_db(self, db: AsyncSession) -> dict[str, Any]:
         created = 0
         updated = 0
-        
+
         for country, stocks in REGIONAL_STOCKS.items():
             region_map = {
                 "US": "North America", "MX": "North America",
@@ -215,12 +214,12 @@ class InternationalStocksService:
                 "JP": "Asia", "CN": "Asia"
             }
             region = region_map.get(country, "Other")
-            
+
             for stock in stocks:
                 stmt = select(InternationalStock).where(InternationalStock.symbol == stock["symbol"])
                 result = await db.execute(stmt)
                 existing = result.scalar_one_or_none()
-                
+
                 if existing:
                     existing.name = stock["name"]
                     existing.exchange = stock["exchange"]
@@ -239,7 +238,7 @@ class InternationalStocksService:
                     )
                     db.add(new_stock)
                     created += 1
-        
+
         await db.flush()
         return {"created": created, "updated": updated}
 

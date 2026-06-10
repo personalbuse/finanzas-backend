@@ -1,6 +1,7 @@
-import resend
 import logging
-from typing import Optional
+
+import resend
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class EmailService:
 
         try:
             reset_url = f"{self.frontend_url}/reset-password?token={token}"
-            
+
             response = resend.Emails.send({
                 "from": self.email_from,
                 "to": email,
@@ -65,11 +66,11 @@ class EmailService:
                 </html>
                 """
             })
-            
+
             logger.info(f"Password reset email sent to {email}")
             return True
-            
-        except Exception as e:
+
+        except Exception:
             logger.exception("Failed to send password reset email")
             return False
 
@@ -80,7 +81,7 @@ class EmailService:
 
         try:
             subject = "Código de verificación - 2FA" if code_type == "2fa" else "Verifica tu correo electrónico"
-            
+
             response = resend.Emails.send({
                 "from": self.email_from,
                 "to": email,
@@ -113,11 +114,11 @@ class EmailService:
                 </html>
                 """
             })
-            
+
             logger.info(f"Verification code email sent to {email}")
             return True
-            
-        except Exception as e:
+
+        except Exception:
             logger.exception("Failed to send verification code email")
             return False
 

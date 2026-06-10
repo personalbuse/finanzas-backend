@@ -1,13 +1,12 @@
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import CustomException, ValidationException
-from app.services.auth_service import get_password_hash
-
 from app.models.base import User
+from app.services.auth_service import get_password_hash
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +41,13 @@ async def create_user(db: AsyncSession, user_data: Any) -> User:
     return user
 
 
-async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
+async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User]:
+async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     stmt = select(User).where(User.username == username.lower())
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
@@ -69,7 +68,7 @@ async def update_user_balance(db: AsyncSession, user_id: int, amount: float) -> 
     return user
 
 
-async def get_all_users(db: AsyncSession, skip: int = 0, limit: int = 100) -> List[User]:
+async def get_all_users(db: AsyncSession, skip: int = 0, limit: int = 100) -> list[User]:
     stmt = select(User).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()

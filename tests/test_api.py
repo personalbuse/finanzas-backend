@@ -1,9 +1,8 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
-
 
 # ─── Health & Root ───
 
@@ -898,8 +897,8 @@ class TestAdmin:
 
     @pytest.mark.asyncio
     async def test_admin_config_list(self, admin_client: AsyncClient, mock_db_session):
-        mock_config = MagicMock(key="test_key", value="test_val", description="Test", updated_at=datetime.now(timezone.utc))
-        mock_config_entry = MagicMock(key="maintenance_mode", value="false", description="Test", updated_at=datetime.now(timezone.utc))
+        mock_config = MagicMock(key="test_key", value="test_val", description="Test", updated_at=datetime.now(UTC))
+        mock_config_entry = MagicMock(key="maintenance_mode", value="false", description="Test", updated_at=datetime.now(UTC))
         mock_query = MagicMock()
         mock_query.scalar_one_or_none = MagicMock(side_effect=[mock_config_entry, mock_config_entry, mock_config_entry, mock_config_entry, mock_config_entry])
         mock_db_session.execute = AsyncMock(return_value=mock_query)

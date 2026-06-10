@@ -1,13 +1,16 @@
+
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, List
 
-from app.core.rate_limiter import limiter, stocks_rate_limit
-from app.db.session import get_db
 from app.core.exceptions import CustomException
-from app.services.world_indices_service import WorldIndicesService, preload_world_indices
-from app.services.international_stocks_service import InternationalStocksService, preload_international_stocks
+from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.core.security import require_admin_api_key
+from app.db.session import get_db
+from app.services.international_stocks_service import (
+    InternationalStocksService,
+    preload_international_stocks,
+)
+from app.services.world_indices_service import WorldIndicesService, preload_world_indices
 
 router = APIRouter()
 
@@ -17,7 +20,7 @@ router = APIRouter()
 async def get_world_indices(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    region: Optional[str] = Query(None, description="Filter by region: North America, South America, Europe, Asia, Oceania, Global")
+    region: str | None = Query(None, description="Filter by region: North America, South America, Europe, Asia, Oceania, Global")
 ):
     async with WorldIndicesService() as service:
         if region:
@@ -55,18 +58,18 @@ async def preload_indices(
 async def get_international_stocks(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    region: Optional[str] = Query(None, description="Filter by region")
+    region: str | None = Query(None, description="Filter by region")
 ):
     async with InternationalStocksService() as service:
         if region:
             stocks = await service.get_stocks_by_region(region, db)
             return {"region": region, "stocks": stocks, "total": len(stocks)}
         all_stocks = await service.get_all_regions(db)
-        
+
         flat_stocks = []
         for region_stocks in all_stocks.values():
             flat_stocks.extend(region_stocks)
-        
+
         return {"stocks": flat_stocks, "total": len(flat_stocks), "by_region": all_stocks}
 
 
@@ -78,11 +81,11 @@ async def get_stocks_by_country(
     db: AsyncSession = Depends(get_db)
 ):
     from app.services.international_stocks_service import REGIONAL_STOCKS
-    
+
     stocks = REGIONAL_STOCKS.get(country.upper(), [])
     if not stocks:
         raise CustomException(status_code=404, detail=f"Country {country} not found")
-    
+
     async with InternationalStocksService() as service:
         result = []
         for stock in stocks:
@@ -91,7 +94,7 @@ async def get_stocks_by_country(
                 **stock,
                 **price_data
             })
-    
+
     return {"country": country.upper(), "stocks": result}
 
 

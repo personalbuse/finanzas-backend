@@ -1,20 +1,16 @@
 import json
-import jwt
 import logging
-from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, text, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.core.rate_limiter import limiter, portfolio_rate_limit, general_rate_limit
+from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
-from app.models.base import User, Transaction, AdminLog, SystemConfig, CacheData, Portfolio
-from app.repositories.portfolio_repository import calculate_portfolio_values
-from app.schemas.user import UserResponse
+from app.models.base import AdminLog, CacheData, Portfolio, SystemConfig, Transaction, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,7 +39,7 @@ async def require_admin(
     Verify admin role by re-reading the User record from the database.
     This ensures that demoted admins lose access immediately, not after JWT expiry.
     """
-    from app.services.auth_service import decode_token, get_current_user
+    from app.services.auth_service import decode_token
     try:
         payload = decode_token(token, token_type="access")
     except Exception:
@@ -75,8 +71,8 @@ async def _log_admin_action(
     admin_user: User,
     action: str,
     target_type: str,
-    target_id: Optional[int] = None,
-    details: Optional[dict] = None,
+    target_id: int | None = None,
+    details: dict | None = None,
 ):
     log = AdminLog(
         admin_id=admin_user.id,
@@ -454,9 +450,9 @@ async def list_all_transactions(
     admin: User = Depends(require_admin),
     skip: int = 0,
     limit: int = 50,
-    user_id: Optional[int] = Query(None),
-    symbol: Optional[str] = Query(None),
-    transaction_type: Optional[str] = Query(None, pattern="^(buy|sell)?$"),
+    user_id: int | None = Query(None),
+    symbol: str | None = Query(None),
+    transaction_type: str | None = Query(None, pattern="^(buy|sell)?$"),
 ):
     conditions = []
     if user_id is not None:
@@ -567,7 +563,7 @@ async def get_admin_logs(
     admin: User = Depends(require_admin),
     skip: int = 0,
     limit: int = 50,
-    action: Optional[str] = Query(None),
+    action: str | None = Query(None),
 ):
     stmt = select(AdminLog).order_by(AdminLog.created_at.desc())
     if action:

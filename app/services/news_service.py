@@ -1,6 +1,7 @@
-from datetime import datetime
-from typing import Dict, Any, List, Optional
 import logging
+from datetime import datetime
+from typing import Any
+
 import httpx
 
 from app.core.api_keys import ApiKeys
@@ -58,14 +59,14 @@ class NewsService:
         if self.http_client:
             await self.http_client.aclose()
 
-    async def get_news(self, category: Optional[str] = None, limit: int = 3, db=None) -> List[Dict[str, Any]]:
+    async def get_news(self, category: str | None = None, limit: int = 3, db=None) -> list[dict[str, Any]]:
         cache_key = f"{category or 'general'}:{limit}"
-        
+
         if db:
             cached = await CacheService.get(db, "news", cache_key)
             if cached:
                 return cached
-        
+
         if not self.api_key:
             logger.warning("No Finnhub API key, using mock news")
             return MOCK_NEWS[:limit]
@@ -95,17 +96,17 @@ class NewsService:
                 })
 
             result = news_items if news_items else MOCK_NEWS[:limit]
-            
+
             if db:
                 await CacheService.set(db, "news", cache_key, value=result, ttl_seconds=1800)
-            
+
             return result
 
         except Exception as e:
             logger.error(f"Error fetching news: {e}")
             return MOCK_NEWS[:limit]
 
-    async def get_news_by_symbol(self, symbol: str, limit: int = 3) -> List[Dict[str, Any]]:
+    async def get_news_by_symbol(self, symbol: str, limit: int = 3) -> list[dict[str, Any]]:
         if not self.api_key:
             return MOCK_NEWS[:limit]
 

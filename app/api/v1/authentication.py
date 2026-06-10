@@ -1,16 +1,18 @@
-import secrets
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Response
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.rate_limiter import limiter, auth_rate_limit
+from app.core.rate_limiter import auth_rate_limit, limiter
 from app.db.session import get_db
-from app.schemas.user import UserCreate, UserUpdate, UserResponse, validate_password_strength
+from app.models.base import PasswordResetToken, User, VerificationCode
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, validate_password_strength
 from app.services.auth_service import (
     authenticate_user,
     create_access_token,
@@ -18,11 +20,10 @@ from app.services.auth_service import (
     decode_token,
     get_current_user,
     get_password_hash,
-    get_token_from_request,
     get_refresh_token_from_request,
+    get_token_from_request,
     verify_password,
 )
-from app.models.base import User, PasswordResetToken, VerificationCode
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
 
@@ -77,12 +78,12 @@ async def register_init(
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(User).where(
-        (User.username == user_data.username) | 
+        (User.username == user_data.username) |
         (User.email == user_data.email)
     )
     result = await db.execute(stmt)
     existing = result.scalar_one_or_none()
-    
+
     if existing:
         if existing.username == user_data.username:
             raise HTTPException(
@@ -94,34 +95,34 @@ async def register_init(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El email ya está en uso"
             )
-    
+
     hashed_password = get_password_hash(user_data.password)
-    
+
     saved = await redis_2fa_service.save_registration_data(
         user_data.email,
         user_data.username,
         hashed_password
     )
-    
+
     if not saved:
         logger.error("redis_2fa_service.save_registration_data returned False")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al procesar el registro. Intenta de nuevo."
         )
-    
+
     try:
         code = await redis_2fa_service.generate_and_save_code(user_data.email)
         sent = await email_service.send_verification_code(user_data.email, code)
         if not sent:
             raise RuntimeError("Verification email was not sent")
-    except Exception as e:
+    except Exception:
         logger.exception("Error sending registration verification code")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al enviar el código. Intenta de nuevo."
         )
-    
+
     return {
         "message": "Código de verificación enviado a tu correo",
         "email": user_data.email
@@ -147,14 +148,14 @@ async def register_verify(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
-    
+
     reg_data = await redis_2fa_service.get_registration_data(email)
     if not reg_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Datos de registro expirados. Por favor regístrate de nuevo."
         )
-    
+
     initial_balance = float(reg_data.get("initial_balance", 10000.00))
     user = User(
         username=reg_data["username"],
@@ -177,7 +178,7 @@ async def register_verify(
     refresh_token = create_refresh_token(user)
 
     _set_auth_cookies(response, access_token, refresh_token)
-    
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -212,26 +213,26 @@ async def resend_code(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El email ya está registrado"
         )
-    
+
     reg_data = await redis_2fa_service.get_registration_data(email)
     if not reg_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No hay registro pendiente para este email. Por favor regístrate de nuevo."
         )
-    
+
     try:
         code = await redis_2fa_service.generate_and_save_code(email)
         sent = await email_service.send_verification_code(email, code)
         if not sent:
             raise RuntimeError("Verification email was not sent")
-    except Exception as e:
+    except Exception:
         logger.exception("Error resending verification code")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al reenviar el código. Intenta de nuevo."
         )
-    
+
     return {"message": "Nuevo código enviado a tu correo"}
 
 
@@ -247,14 +248,14 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     user = await authenticate_user(db, form_data.username, form_data.password)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Nombre de usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username, "user_id": user.id},
@@ -338,7 +339,7 @@ async def get_profile(
     try:
         user = await get_current_user(db, token)
         return user
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting profile")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -363,7 +364,7 @@ async def update_profile(
         token = get_token_from_request(request)
     try:
         user = await get_current_user(db, token)
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting profile for update")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -423,13 +424,13 @@ async def forgot_password(
     stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user:
         return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
-    
+
     token = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(hours=1)
-    
+
     reset_token = PasswordResetToken(
         user_id=user.id,
         token=hash_reset_token(token),
@@ -437,7 +438,7 @@ async def forgot_password(
     )
     db.add(reset_token)
     await db.commit()
-    
+
     sent = await email_service.send_password_reset_email(user.email, token)
     if not sent:
         logger.error("Password reset email was not sent")
@@ -445,7 +446,7 @@ async def forgot_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No se pudo enviar el correo de recuperación"
         )
-    
+
     return {"message": "Si el correo existe, recibirás un enlace de recuperación"}
 
 
@@ -474,29 +475,29 @@ async def reset_password(
     )
     result = await db.execute(stmt)
     reset_token = result.scalar_one_or_none()
-    
+
     if not reset_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Token inválido o ya utilizado"
         )
-    
+
     if reset_token.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El token ha expirado"
         )
-    
+
     stmt_user = select(User).where(User.id == reset_token.user_id)
     result_user = await db.execute(stmt_user)
     user = result_user.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
         )
-    
+
     user.hashed_password = get_password_hash(new_password)
     user.password_version = (user.password_version or 0) + 1
     reset_token.used = True

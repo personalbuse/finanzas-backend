@@ -3,11 +3,11 @@ import importlib
 import logging
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     app.state.maintenance_mode = False
     try:
         from sqlalchemy import select
+
         from app.db.session import AsyncSessionLocal
         from app.models.base import SystemConfig
         async with AsyncSessionLocal() as session:
@@ -51,8 +52,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Could not read maintenance_mode from DB, using default: False")
 
-    from app.services.finnhub_service import preload_stocks_task
     from app.services.exchange_rate_service import preload_exchange_rates_task
+    from app.services.finnhub_service import preload_stocks_task
 
     scheduler.add_job(
         preload_stocks_task,
@@ -208,8 +209,9 @@ def create_application() -> FastAPI:
     async def health_check():
         db_status = "disconnected"
         try:
-            from app.db.session import AsyncSessionLocal
             from sqlalchemy import text
+
+            from app.db.session import AsyncSessionLocal
             async with AsyncSessionLocal() as session:
                 await session.execute(text("SELECT 1"))
                 db_status = "connected"

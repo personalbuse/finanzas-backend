@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import date
+
+from pydantic import BaseModel, Field
 
 
 class StockInfo(BaseModel):
@@ -36,23 +36,23 @@ class WorldIndexResponse(BaseModel):
     country: str
     region: str
     currency: str
-    current_value: Optional[float] = None
-    change: Optional[float] = None
-    change_percent: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    previous_close: Optional[float] = None
-    last_updated: Optional[str] = None
+    current_value: float | None = None
+    change: float | None = None
+    change_percent: float | None = None
+    high: float | None = None
+    low: float | None = None
+    previous_close: float | None = None
+    last_updated: str | None = None
 
 
 class IndexHistoryResponse(BaseModel):
     index_symbol: str
     date: date
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    close: Optional[float] = None
-    volume: Optional[int] = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: int | None = None
 
 
 class InternationalStockResponse(BaseModel):
@@ -62,13 +62,13 @@ class InternationalStockResponse(BaseModel):
     exchange: str
     country: str
     region: str
-    sector: Optional[str] = None
+    sector: str | None = None
     currency: str
-    current_price: Optional[float] = None
-    change: Optional[float] = None
-    change_percent: Optional[float] = None
-    previous_close: Optional[float] = None
-    last_updated: Optional[str] = None
+    current_price: float | None = None
+    change: float | None = None
+    change_percent: float | None = None
+    previous_close: float | None = None
+    last_updated: str | None = None
     is_active: bool
 
 
@@ -78,10 +78,10 @@ class InternationalStockCreate(BaseModel):
     exchange: str
     country: str
     region: str
-    sector: Optional[str] = None
+    sector: str | None = None
     currency: str
 
 
 class BatchStocksRequest(BaseModel):
-    symbols: List[str] = Field(..., max_items=100)
+    symbols: list[str] = Field(..., max_items=100)
     cache_ttl: int = Field(default=86400)

@@ -1,15 +1,14 @@
-import asyncio
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
-from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
-from app.main import create_application
 from app.core.config import settings
+from app.main import create_application
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +36,7 @@ class MockUser:
         self.completed_courses = completed_courses
         self.password_version = password_version
         self.hashed_password = "$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
 
     def __repr__(self):
         return f"<MockUser(id={self.id}, username={self.username})>"
@@ -189,7 +188,6 @@ def test_app(mock_db_session, mock_user, mock_admin_user):
         return current_user_context["user"]
 
     from app.api.v1.portfolio import get_authenticated_user as portfolio_auth
-    from app.api.v1.leaderboard import get_authenticated_user as leaderboard_auth
     app.dependency_overrides[portfolio_auth] = mock_get_authenticated_user
 
     yield app, current_user_context, mock_db_session, mock_user, mock_admin_user

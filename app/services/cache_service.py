@@ -1,6 +1,6 @@
 import logging
-from typing import Optional, Any
 from datetime import datetime, timedelta
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,20 +16,21 @@ class CacheService:
     @staticmethod
     def generate_key(prefix: str, *parts: str) -> str:
         return f"{prefix}:{':'.join(str(p) for p in parts)}"
-    
+
     @staticmethod
-    async def get(session, prefix: str, *parts: str) -> Optional[Any]:
+    async def get(session, prefix: str, *parts: str) -> Any | None:
         key = CacheService.generate_key(prefix, *parts)
-        
+
         if REDIS_AVAILABLE:
             cached = await RedisCache.get_json(key)
             if cached:
                 logger.info(f"Redis cache hit for {key}")
                 return cached
-        
-        from sqlalchemy import select, and_
+
+        from sqlalchemy import and_, select
+
         from app.models.base import CacheData
-        
+
         stmt = select(CacheData).where(
             and_(
                 CacheData.key == key,
@@ -38,21 +39,21 @@ class CacheService:
         )
         result = await session.execute(stmt)
         cache_entry = result.scalar_one_or_none()
-        
+
         if cache_entry:
             import json
             try:
                 return json.loads(cache_entry.value)
             except (json.JSONDecodeError, TypeError):
                 return cache_entry.value
-        
+
         return None
-    
+
     @staticmethod
-    async def set(session, prefix: str, *parts: str, 
+    async def set(session, prefix: str, *parts: str,
                   value: Any, ttl_seconds: int = 300) -> bool:
         key = CacheService.generate_key(prefix, *parts)
-        
+
         if REDIS_AVAILABLE:
             import json
             if isinstance(value, (dict, list)):
@@ -61,28 +62,30 @@ class CacheService:
                 redis_value = value
             else:
                 redis_value = str(value)
-            
+
             redis_success = await RedisCache.set(key, redis_value, ttl_seconds)
             if redis_success:
                 logger.info(f"Redis cache set for {key}")
                 return True
-        
-        from sqlalchemy import select
-        from app.models.base import CacheData
+
         import json
-        
+
+        from sqlalchemy import select
+
+        from app.models.base import CacheData
+
         if isinstance(value, (dict, list)):
             value_str = json.dumps(value)
         else:
             value_str = str(value)
-        
+
         expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
-        
+
         try:
             stmt = select(CacheData).where(CacheData.key == key)
             result = await session.execute(stmt)
             cache_entry = result.scalar_one_or_none()
-            
+
             if cache_entry:
                 cache_entry.value = value_str
                 cache_entry.expires_at = expires_at
@@ -93,43 +96,45 @@ class CacheService:
                     expires_at=expires_at
                 )
                 session.add(cache_entry)
-            
+
             await session.commit()
             logger.info(f"PostgreSQL cache set for {key}")
             return True
-        except Exception as e:
+        except Exception:
             await session.rollback()
             logger.exception(f"Error writing to cache for {key}")
             return False
-    
+
     @staticmethod
     async def delete(session, prefix: str, *parts: str) -> bool:
         key = CacheService.generate_key(prefix, *parts)
-        
+
         if REDIS_AVAILABLE:
             await RedisCache.delete(key)
-        
-        from sqlalchemy import select, delete
+
+        from sqlalchemy import select
+
         from app.models.base import CacheData
-        
+
         stmt = select(CacheData).where(CacheData.key == key)
         result = await session.execute(stmt)
         cache_entry = result.scalar_one_or_none()
-        
+
         if cache_entry:
             await session.delete(cache_entry)
             await session.commit()
             return True
         return False
-    
+
     @staticmethod
     async def invalidate_prefix(session, prefix: str) -> bool:
         if REDIS_AVAILABLE:
             logger.info(f"Invalidating Redis keys with prefix: {prefix}")
-        
+
         from sqlalchemy import delete
+
         from app.models.base import CacheData
-        
+
         stmt = delete(CacheData).where(CacheData.key.startswith(prefix + ":"))
         result = await session.execute(stmt)
         await session.commit()

@@ -1,16 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
-from pydantic import BaseModel, Field, field_validator
-import logging
 import asyncio
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limiter import limiter, stocks_rate_limit
 from app.core.security import require_admin_api_key
 from app.db.session import get_db
-from app.services.finnhub_service import FinnhubService, preload_stocks_task, preload_all_stocks, PRELOAD_STOCKS
+from app.schemas.stock import HistoricalData, StockInfo
 from app.services.exchange_rate_service import ExchangeRateService
-from app.schemas.stock import StockInfo, HistoricalData
+from app.services.finnhub_service import (
+    PRELOAD_STOCKS,
+    FinnhubService,
+    preload_all_stocks,
+    preload_stocks_task,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,10 +32,10 @@ async def preload_stocks_NEWVERSION(db: AsyncSession = Depends(get_db)):
     ~20 segundos para 35 stocks en vez de ~35 segundos.
     """
     logger.info(f"NUEVA VERSION - Iniciando precarga optimizada de {len(PRELOAD_STOCKS)} stocks...")
-    
+
     result = await preload_all_stocks(db, batch_size=10, delay_between_batches=0.5)
     logger.info(f"Precarga completada: {result}")
-    
+
     return result
 
 
@@ -64,12 +69,12 @@ async def refresh_stocks_sync(db: AsyncSession = Depends(get_db)):
 
 
 class BatchStockRequest(BaseModel):
-    symbols: List[str] = Field(..., min_length=1, max_length=50)
+    symbols: list[str] = Field(..., min_length=1, max_length=50)
     cache_ttl: int = Field(default=86400, ge=60, le=86400)
 
     @field_validator("symbols")
     @classmethod
-    def validate_symbols(cls, symbols: List[str]) -> List[str]:
+    def validate_symbols(cls, symbols: list[str]) -> list[str]:
         cleaned = []
         for symbol in symbols:
             normalized = symbol.strip().upper()
@@ -85,7 +90,7 @@ class BatchStockRequest(BaseModel):
 
 @router.post(
     "/stocks/batch",
-    response_model=List[StockInfo],
+    response_model=list[StockInfo],
     tags=["acciones"]
 )
 @limiter.limit("30/minute")
@@ -105,10 +110,10 @@ async def get_stocks_batch(
         cleaned = symbol.strip().upper()
         if cleaned and cleaned not in unique_symbols:
             unique_symbols.append(cleaned)
-    
+
     if not unique_symbols:
         return results
-    
+
     async with FinnhubService() as service:
         async def fetch_stock(symbol):
             try:
@@ -116,12 +121,12 @@ async def get_stocks_batch(
             except Exception as e:
                 logger.warning(f"No se pudo cargar {symbol}: {e}")
                 return service._get_mock_data(symbol)
-        
+
         gathered = await asyncio.gather(
             *[fetch_stock(s) for s in unique_symbols],
             return_exceptions=True
         )
-    
+
     results = []
     async with FinnhubService() as service:
         for r in gathered:
@@ -129,7 +134,7 @@ async def get_stocks_batch(
                 results.append(service._get_mock_data("UNKNOWN"))
             else:
                 results.append(r)
-    
+
     return results
 
 
@@ -225,15 +230,15 @@ async def get_multi_exchange_rates(
 
         usd_cop = rates.get("USD_COP", {})
         eur_cop = rates.get("EUR_COP", {})
-        
+
         usd_change = None
         eur_change = None
-        
+
         if usd_cop.get("history") and len(usd_cop["history"]) >= 2:
             old_rate = usd_cop["history"][-2]["rate"]
             new_rate = usd_cop["today"]
             usd_change = ((new_rate - old_rate) / old_rate) * 100
-        
+
         if eur_cop.get("history") and len(eur_cop["history"]) >= 2:
             old_rate = eur_cop["history"][-2]["rate"]
             new_rate = eur_cop["today"]

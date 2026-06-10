@@ -1,8 +1,7 @@
 import re
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import Optional
 from datetime import datetime
 
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 USERNAME_PATTERN = r'^[a-z0-9_.-]{3,50}$'
 
@@ -39,7 +38,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=12, max_length=100)
-    initial_balance: Optional[float] = Field(default=10000.00, ge=1000)
+    initial_balance: float | None = Field(default=10000.00, ge=1000)
 
     @field_validator('username')
     @classmethod
@@ -53,10 +52,10 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = Field(None, min_length=3, max_length=50)
-    email: Optional[EmailStr] = None
-    current_password: Optional[str] = Field(None, min_length=1)
-    new_password: Optional[str] = Field(None, min_length=12, max_length=100)
+    username: str | None = Field(None, min_length=3, max_length=50)
+    email: EmailStr | None = None
+    current_password: str | None = Field(None, min_length=1)
+    new_password: str | None = Field(None, min_length=12, max_length=100)
 
     @field_validator('username')
     @classmethod
@@ -82,7 +81,7 @@ class UserResponse(BaseModel):
     completed_courses: int = 0
     rol: str = "inversor"
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -98,7 +97,7 @@ class Token(BaseModel):
 
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    username: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -121,10 +120,10 @@ class PortfolioItem(BaseModel):
     symbol: str
     quantity: float
     average_cost: float
-    current_price: Optional[float] = None
-    stock_value: Optional[float] = None
-    stock_profit: Optional[float] = None
-    stock_profit_percent: Optional[float] = None
+    current_price: float | None = None
+    stock_value: float | None = None
+    stock_profit: float | None = None
+    stock_profit_percent: float | None = None
 
 
 class PortfolioResponse(BaseModel):

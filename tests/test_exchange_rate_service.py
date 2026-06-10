@@ -1,5 +1,5 @@
-from unittest.mock import AsyncMock, MagicMock, patch, ANY
-from datetime import datetime, date
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 

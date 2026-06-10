@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import List
 from datetime import datetime
+
+from pydantic import BaseModel
 
 
 class PortfolioItem(BaseModel):
@@ -18,7 +18,7 @@ class PortfolioResponse(BaseModel):
     total_value: float
     total_profit: float
     total_profit_percent: float
-    stocks: List[PortfolioItem]
+    stocks: list[PortfolioItem]
 
 
 class TransactionItem(BaseModel):
@@ -33,5 +33,5 @@ class TransactionItem(BaseModel):
 
 
 class TransactionHistory(BaseModel):
-    transactions: List[TransactionItem]
+    transactions: list[TransactionItem]
     total_count: int

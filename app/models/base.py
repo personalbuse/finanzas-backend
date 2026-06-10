@@ -1,14 +1,28 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Numeric, Boolean, ForeignKey, func, PrimaryKeyConstraint, UniqueConstraint, Index, Text
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime, date
 
 Base = declarative_base()
 
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
@@ -21,23 +35,23 @@ class User(Base):
     password_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    
+
     portfolios = relationship("Portfolio", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
 
 
 class Portfolio(Base):
     __tablename__ = "portfolios"
-    
+
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     symbol = Column(String(10), nullable=False)
     quantity = Column(Numeric(15, 4), nullable=False)
     average_cost = Column(Numeric(15, 4), nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-    
+
     user = relationship("User", back_populates="portfolios")
-    
+
     __table_args__ = (
         PrimaryKeyConstraint("user_id", "symbol"),
     )
@@ -45,7 +59,7 @@ class Portfolio(Base):
 
 class Transaction(Base):
     __tablename__ = "transactions"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     symbol = Column(String(10), nullable=False)
@@ -67,13 +81,13 @@ class Transaction(Base):
 
 class CacheData(Base):
     __tablename__ = "cache_data"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(255), unique=True, index=True, nullable=False)
     value = Column(Text, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=func.now())
-    
+
     @classmethod
     def generate_key(cls, *parts):
         return ":".join(parts)
@@ -81,20 +95,20 @@ class CacheData(Base):
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token = Column(String(255), unique=True, index=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
-    
+
     user = relationship("User")
 
 
 class VerificationCode(Base):
     __tablename__ = "verification_codes"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     code = Column(String(6), nullable=False)
@@ -103,20 +117,20 @@ class VerificationCode(Base):
     used = Column(Boolean, default=False, index=True)
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=func.now())
-    
+
     user = relationship("User")
 
 
 class ExchangeRateHistory(Base):
     __tablename__ = "exchange_rate_history"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     from_currency = Column(String(3), nullable=False)
     to_currency = Column(String(3), nullable=False)
     rate = Column(Numeric(15, 6), nullable=False)
     date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=func.now())
-    
+
     __table_args__ = (
         UniqueConstraint('from_currency', 'to_currency', 'date', name='unique_rate_date'),
         Index('idx_rate_currencies_date', 'from_currency', 'to_currency', 'date'),
@@ -155,7 +169,7 @@ class IndexHistory(Base):
     close = Column(Numeric(15, 2), nullable=True)
     volume = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    
+
     __table_args__ = (
         UniqueConstraint('index_symbol', 'date', name='unique_index_date'),
         Index('idx_index_date', 'index_symbol', 'date'),
@@ -204,7 +218,7 @@ class CompletedModule(Base):
 
 class InternationalStock(Base):
     __tablename__ = "international_stocks"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String(20), unique=True, nullable=False, index=True)
     name = Column(String(150), nullable=False)

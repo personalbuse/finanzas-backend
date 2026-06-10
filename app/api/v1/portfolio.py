@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,18 +10,18 @@ from app.core.exceptions import ForbiddenException
 from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
 from app.models.base import User
-from app.services.auth_service import get_current_user, get_token_from_request
-from app.services.finnhub_service import FinnhubService
 from app.repositories.portfolio_repository import (
     add_stock_to_portfolio,
-    remove_stock_from_portfolio,
-    get_transaction_history,
-    create_transaction,
     calculate_portfolio_values,
+    create_transaction,
     get_portfolio_by_symbol,
+    get_transaction_history,
+    remove_stock_from_portfolio,
 )
-from app.schemas.user import BuyRequest, SellRequest
 from app.schemas.portfolio import PortfolioResponse, TransactionHistory
+from app.schemas.user import BuyRequest, SellRequest
+from app.services.auth_service import get_current_user, get_token_from_request
+from app.services.finnhub_service import FinnhubService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -63,7 +64,7 @@ async def get_my_portfolio_values(
         return await calculate_portfolio_values(db, current_user.id)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error al obtener valores del portafolio")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -163,7 +164,7 @@ async def buy_stock(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error al realizar compra")
         await db.rollback()
         raise HTTPException(
@@ -188,7 +189,7 @@ async def sell_stock(
     try:
         async with FinnhubService() as service:
             stock_data = await service.get_stock_price(symbol, db)
-    except Exception as e:
+    except Exception:
         logger.exception("Error obteniendo precio de acción para venta")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -257,7 +258,7 @@ async def sell_stock(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error al realizar venta")
         await db.rollback()
         raise HTTPException(
@@ -284,7 +285,7 @@ async def get_my_transaction_history(
         safe_skip = max(0, skip)
         transactions = await get_transaction_history(db, current_user.id, safe_skip, safe_limit)
         return {"transactions": transactions, "total_count": len(transactions)}
-    except Exception as e:
+    except Exception:
         logger.exception("Error al obtener historial")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -333,7 +334,7 @@ async def get_portfolio_report(
                 "Content-Disposition": f"attachment; filename=portafolio_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.pdf"
             }
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Error generando PDF")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

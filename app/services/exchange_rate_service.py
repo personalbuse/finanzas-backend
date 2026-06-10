@@ -1,16 +1,15 @@
-from datetime import datetime, timedelta, date
-from typing import Dict, Any, Optional, List
-import logging
 import asyncio
+import logging
+from datetime import date, datetime, timedelta
+from typing import Any
 
 import httpx
-
 from sqlalchemy import select
-from app.services.cache_service import CacheService
+
 from app.core.api_keys import ApiKeys
 from app.core.exceptions import CustomException
-from app.core.config import settings
 from app.models.base import ExchangeRateHistory
+from app.services.cache_service import CacheService
 
 logger = logging.getLogger(__name__)
 
@@ -20,20 +19,20 @@ RETRY_DELAYS = [1, 2, 4]
 
 class ExchangeRateService:
     BASE_URL = "https://v6.exchangerate-api.com/v6"
-    
+
     def __init__(self):
         self.api_key = ApiKeys.EXCHANGE_RATE
         self.http_client = None
-    
+
     async def __aenter__(self):
         self.http_client = httpx.AsyncClient(timeout=30.0)
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.http_client:
             await self.http_client.aclose()
-    
-    async def _fetch_rate_from_api(self, from_currency: str, to_currency: str) -> Optional[Dict[str, Any]]:
+
+    async def _fetch_rate_from_api(self, from_currency: str, to_currency: str) -> dict[str, Any] | None:
         response = await self.http_client.get(
             f"{self.BASE_URL}/{self.api_key}/latest/{from_currency.upper()}"
         )
@@ -57,7 +56,7 @@ class ExchangeRateService:
             "source": "ExchangeRate-API"
         }
 
-    async def _get_fallback_rate(self, from_currency: str, to_currency: str, db_session) -> Optional[Dict[str, Any]]:
+    async def _get_fallback_rate(self, from_currency: str, to_currency: str, db_session) -> dict[str, Any] | None:
         stmt = select(ExchangeRateHistory).where(
             ExchangeRateHistory.from_currency == from_currency.upper(),
             ExchangeRateHistory.to_currency == to_currency.upper()
@@ -78,7 +77,7 @@ class ExchangeRateService:
 
         return None
 
-    async def get_exchange_rate(self, from_currency: str, to_currency: str, db_session) -> Dict[str, Any]:
+    async def get_exchange_rate(self, from_currency: str, to_currency: str, db_session) -> dict[str, Any]:
         cached = await CacheService.get(db_session, "exchange", from_currency, to_currency)
         if cached:
             return cached
@@ -118,13 +117,13 @@ class ExchangeRateService:
             status_code=503,
             detail="Error de conexión con ExchangeRate API y no hay datos históricos disponibles"
         )
-    
-    async def convert_currency(self, amount: float, from_currency: str, 
-                               to_currency: str, db_session) -> Dict[str, Any]:
+
+    async def convert_currency(self, amount: float, from_currency: str,
+                               to_currency: str, db_session) -> dict[str, Any]:
         exchange = await self.get_exchange_rate(from_currency, to_currency, db_session)
-        
+
         converted_amount = amount * exchange["rate"]
-        
+
         return {
             "amount": amount,
             "from_currency": from_currency.upper(),
@@ -136,7 +135,7 @@ class ExchangeRateService:
 
     async def save_exchange_rate(self, from_currency: str, to_currency: str, rate: float, db_session) -> None:
         today = date.today()
-        
+
         stmt = select(ExchangeRateHistory).where(
             ExchangeRateHistory.from_currency == from_currency.upper(),
             ExchangeRateHistory.to_currency == to_currency.upper(),
@@ -144,7 +143,7 @@ class ExchangeRateService:
         )
         result = await db_session.execute(stmt)
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             existing.rate = rate
         else:
@@ -155,21 +154,21 @@ class ExchangeRateService:
                 date=today
             )
             db_session.add(new_rate)
-        
+
         await db_session.flush()
 
-    async def get_exchange_history(self, from_currency: str, to_currency: str, days: int, db_session) -> List[Dict[str, Any]]:
+    async def get_exchange_history(self, from_currency: str, to_currency: str, days: int, db_session) -> list[dict[str, Any]]:
         start_date = date.today() - timedelta(days=days)
-        
+
         stmt = select(ExchangeRateHistory).where(
             ExchangeRateHistory.from_currency == from_currency.upper(),
             ExchangeRateHistory.to_currency == to_currency.upper(),
             ExchangeRateHistory.date >= start_date
         ).order_by(ExchangeRateHistory.date.asc())
-        
+
         result = await db_session.execute(stmt)
         rates = result.scalars().all()
-        
+
         return [
             {
                 "date": str(r.date),
@@ -178,7 +177,7 @@ class ExchangeRateService:
             for r in rates
         ]
 
-    async def get_multi_exchange_rates(self, pairs: List[tuple], db_session) -> Dict[str, Any]:
+    async def get_multi_exchange_rates(self, pairs: list[tuple], db_session) -> dict[str, Any]:
         async def fetch_rate_only(from_curr, to_curr):
             try:
                 current_rate = await self.get_exchange_rate(from_curr, to_curr, db_session)
@@ -186,14 +185,14 @@ class ExchangeRateService:
             except Exception as e:
                 logger.error(f"Error fetching {from_curr}/{to_curr}: {e}")
                 return from_curr, to_curr, None, e
-        
+
         if pairs:
             # Step 1: HTTP calls in PARALLEL (no DB writes inside)
             pair_results = await asyncio.gather(
                 *[fetch_rate_only(fc, tc) for fc, tc in pairs],
                 return_exceptions=True
             )
-            
+
             result = {}
             # Step 2: DB operations SEQUENTIAL (outside the gather)
             for pr in pair_results:
@@ -202,14 +201,14 @@ class ExchangeRateService:
                 from_curr, to_curr, current_rate, error = pr
                 if error or not current_rate:
                     continue
-                
+
                 key = f"{from_curr}_{to_curr}"
                 result[key] = {
                     "today": current_rate["rate"],
                     "history": [],
                     "timestamp": current_rate["timestamp"]
                 }
-                
+
                 # Sequential DB operations (one at a time, no concurrent session access)
                 try:
                     await self.save_exchange_rate(from_curr, to_curr, current_rate["rate"], db_session)
@@ -217,7 +216,7 @@ class ExchangeRateService:
                     result[key]["history"] = history
                 except Exception as e:
                     logger.warning(f"Error saving history for {key}: {e}")
-            
+
             return result
         return {}
 
@@ -246,12 +245,12 @@ async def preload_exchange_rates_task():
                     except Exception as e:
                         logger.error(f"Error pre-cargando {from_curr}/{to_curr}: {e}")
                         return from_curr, to_curr, None, e
-                
+
                 rate_results = await asyncio.gather(
                     *[fetch_rate(fc, tc) for fc, tc in EXCHANGE_PAIRS],
                     return_exceptions=True
                 )
-                
+
                 # Step 2: DB operations SEQUENTIAL (save to DB one by one)
                 loaded_count = 0
                 for rr in rate_results:
@@ -260,14 +259,14 @@ async def preload_exchange_rates_task():
                     from_curr, to_curr, rate_data, error = rr
                     if error or not rate_data:
                         continue
-                    
+
                     try:
                         await service.save_exchange_rate(from_curr, to_curr, rate_data["rate"], db)
                         logger.info(f"Tasa {from_curr}/{to_curr} pre-cargada: {rate_data['rate']}")
                         loaded_count += 1
                     except Exception as e:
                         logger.error(f"Error guardando {from_curr}/{to_curr}: {e}")
-                
+
                 await db.commit()
                 logger.info(f"Tarea de preload de tasas de cambio completada: {loaded_count}/{len(EXCHANGE_PAIRS)}")
                 return {"status": "completed", "pairs": loaded_count}

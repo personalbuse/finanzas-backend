@@ -3,9 +3,9 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.models.base import User
 from app.repositories.leaderboard_repository import get_leaderboard, get_user_rank
 from app.services.auth_service import get_current_user
-from app.models.base import User
 
 router = APIRouter()
 

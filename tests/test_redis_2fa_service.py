@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -167,6 +167,5 @@ class TestRedis2FAService:
     # ─── module-level singleton ───
 
     def test_module_singleton_exists(self):
-        from app.services.redis_2fa_service import redis_2fa_service
-        from app.services.redis_2fa_service import Redis2FAService
+        from app.services.redis_2fa_service import Redis2FAService, redis_2fa_service
         assert isinstance(redis_2fa_service, Redis2FAService)

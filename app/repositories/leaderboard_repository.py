@@ -1,10 +1,10 @@
-from typing import List, Dict, Any
 import logging
-import json
-from sqlalchemy import select, func
+from typing import Any
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import User, Portfolio
+from app.models.base import Portfolio, User
 from app.services.cache_service import CacheService
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ CACHE_PREFIX = "leaderboard"
 CACHE_TTL_SECONDS = 300
 
 
-async def get_leaderboard(db: AsyncSession, limit: int = 10) -> List[Dict[str, Any]]:
+async def get_leaderboard(db: AsyncSession, limit: int = 10) -> list[dict[str, Any]]:
     cache_key = f"{CACHE_PREFIX}:all"
     cached = await CacheService.get(db, CACHE_PREFIX, "all")
     if cached:
@@ -65,7 +65,7 @@ async def get_leaderboard(db: AsyncSession, limit: int = 10) -> List[Dict[str, A
     return leaderboard[:limit]
 
 
-async def get_user_rank(db: AsyncSession, user_id: int) -> Dict[str, Any]:
+async def get_user_rank(db: AsyncSession, user_id: int) -> dict[str, Any]:
     leaderboard = await get_leaderboard(db, limit=1000)
 
     user_entry = next((entry for entry in leaderboard if entry["user_id"] == user_id), None)

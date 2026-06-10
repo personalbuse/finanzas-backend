@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+
 from pydantic import SecretStr
 
 from app.core.config import settings
@@ -7,7 +7,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _get_val(key: Optional[SecretStr]) -> str:
+def _get_val(key: SecretStr | None) -> str:
     return key.get_secret_value() if key else ""
 
 

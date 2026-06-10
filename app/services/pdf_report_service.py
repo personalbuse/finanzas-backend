@@ -1,7 +1,6 @@
-from datetime import datetime
-from typing import Dict, Any, List
-from io import BytesIO
 import logging
+from datetime import datetime
+from typing import Any
 
 from fpdf import FPDF
 
@@ -26,8 +25,8 @@ class PDFReport(FPDF):
 
 
 def generate_portfolio_pdf(
-    user_data: Dict[str, Any],
-    portfolio: List[Dict[str, Any]],
+    user_data: dict[str, Any],
+    portfolio: list[dict[str, Any]],
     exchange_rate: float
 ) -> bytes:
     pdf = PDFReport()
@@ -131,8 +130,10 @@ def generate_portfolio_pdf(
 
 async def generate_report(db, user_id: int):
     import asyncio
+
     from sqlalchemy import select
-    from app.models.base import User, Portfolio
+
+    from app.models.base import Portfolio, User
     from app.services.finnhub_service import FinnhubService
 
     user_stmt = select(User).where(User.id == user_id)
@@ -153,12 +154,12 @@ async def generate_report(db, user_id: int):
                 current_price_data = await service.get_stock_price(p.symbol, db)
                 current_price = current_price_data.get('price', 0)
                 return p, current_price
-            
+
             price_results = await asyncio.gather(
                 *[fetch_price(p) for p in portfolios],
                 return_exceptions=True
             )
-    
+
     portfolio_list = []
     for r in price_results:
         if isinstance(r, Exception):

@@ -1,15 +1,14 @@
-from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
-import logging
-import httpx
 import asyncio
+import logging
+from datetime import datetime
+from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
 
+from app.models.base import WorldIndex
 from app.services.cache_service import CacheService
-from app.models.base import WorldIndex, IndexHistory
 
 logger = logging.getLogger(__name__)
 
@@ -70,22 +69,22 @@ class WorldIndicesService:
     def __init__(self):
         self.http_client = None
         self.finnhub_key = None
-    
+
     async def __aenter__(self):
         self.http_client = httpx.AsyncClient(timeout=30.0)
         from app.core.api_keys import ApiKeys
         self.finnhub_key = ApiKeys.FINNHUB
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.http_client:
             await self.http_client.aclose()
-    
-    async def get_indices(self, db: AsyncSession) -> List[Dict[str, Any]]:
+
+    async def get_indices(self, db: AsyncSession) -> list[dict[str, Any]]:
         cached = await CacheService.get(db, "world_indices", "all")
         if cached:
             return cached
-        
+
         async def fetch_index(idx_data):
             index_info = await self._get_index_data(idx_data["symbol"], db)
             return {
@@ -96,24 +95,24 @@ class WorldIndicesService:
                 "currency": idx_data["currency"],
                 **index_info
             }
-        
+
         result = await asyncio.gather(
             *[fetch_index(idx_data) for idx_data in WORLD_INDICES],
             return_exceptions=True
         )
         result = [r for r in result if not isinstance(r, Exception)]
-        
+
         await CacheService.set(
             db, "world_indices", "all",
             value=result,
             ttl_seconds=3600
         )
-        
+
         return result
-    
-    async def _get_index_data(self, symbol: str, db: AsyncSession) -> Dict[str, Any]:
+
+    async def _get_index_data(self, symbol: str, db: AsyncSession) -> dict[str, Any]:
         mock = MOCK_INDICES.get(symbol, {"price": 0, "change": 0, "change_percent": 0})
-        
+
         if self.finnhub_key and symbol in ["^GSPC", "^DJI", "^IXIC"]:
             try:
                 url = "https://finnhub.io/api/v1/quote"
@@ -133,7 +132,7 @@ class WorldIndicesService:
                         }
             except Exception as e:
                 logger.warning(f"Error fetching {symbol} from Finnhub: {e}")
-        
+
         return {
             "current_value": mock["price"],
             "change": mock["change"],
@@ -143,12 +142,12 @@ class WorldIndicesService:
             "previous_close": mock["price"] - mock["change"],
             "last_updated": datetime.utcnow().isoformat()
         }
-    
-    async def get_index_by_symbol(self, symbol: str, db: AsyncSession) -> Optional[Dict[str, Any]]:
+
+    async def get_index_by_symbol(self, symbol: str, db: AsyncSession) -> dict[str, Any] | None:
         idx_data = next((i for i in WORLD_INDICES if i["symbol"] == symbol), None)
         if not idx_data:
             return None
-        
+
         index_info = await self._get_index_data(symbol, db)
         return {
             "symbol": idx_data["symbol"],
@@ -158,20 +157,20 @@ class WorldIndicesService:
             "currency": idx_data["currency"],
             **index_info
         }
-    
-    async def get_indices_by_region(self, region: str, db: AsyncSession) -> List[Dict[str, Any]]:
+
+    async def get_indices_by_region(self, region: str, db: AsyncSession) -> list[dict[str, Any]]:
         indices = await self.get_indices(db)
         return [idx for idx in indices if idx.get("region") == region]
-    
-    async def initialize_indices_db(self, db: AsyncSession) -> Dict[str, Any]:
+
+    async def initialize_indices_db(self, db: AsyncSession) -> dict[str, Any]:
         created = 0
         updated = 0
-        
+
         for idx_data in WORLD_INDICES:
             stmt = select(WorldIndex).where(WorldIndex.symbol == idx_data["symbol"])
             result = await db.execute(stmt)
             existing = result.scalar_one_or_none()
-            
+
             if existing:
                 existing.name = idx_data["name"]
                 existing.country = idx_data["country"]
@@ -188,7 +187,7 @@ class WorldIndicesService:
                 )
                 db.add(new_index)
                 created += 1
-        
+
         await db.flush()
         return {"created": created, "updated": updated}
 

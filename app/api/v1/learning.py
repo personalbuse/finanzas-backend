@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limiter import limiter
 from app.db.session import get_db
-from app.models.base import CompletedModule, User
+from app.models.base import CompletedModule
 from app.repositories.user_repository import get_course_progress
 from app.schemas.user import CourseProgressResponse, UserResponse
 from app.services.auth_service import get_current_user
