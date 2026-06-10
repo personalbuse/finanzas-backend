@@ -101,8 +101,8 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
     return user
 
 
-async def get_current_user(db: AsyncSession, token: str) -> User:
-    payload = decode_token(token, token_type="access")
+async def get_current_user(db: AsyncSession, token: str, token_type: str = "access") -> User:
+    payload = decode_token(token, token_type=token_type)
     username: str = payload.get("sub")
     if username is None:
         raise UnauthorizedException("Invalid credentials")

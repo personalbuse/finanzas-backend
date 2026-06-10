@@ -309,7 +309,7 @@ async def refresh_token_endpoint(
             detail="Invalid refresh token",
         ) from e
 
-    user = await get_current_user(db, refresh_token)
+    user = await get_current_user(db, refresh_token, token_type="refresh")
     new_access = create_access_token(
         data={"sub": user.username, "user_id": user.id},
     )

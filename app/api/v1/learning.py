@@ -8,10 +8,10 @@ from app.db.session import get_db
 from app.models.base import CompletedModule
 from app.repositories.user_repository import get_course_progress
 from app.schemas.user import CourseProgressResponse, UserResponse
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, get_token_from_request
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login", auto_error=False)
 
 VALID_MODULES = {"m1", "m2", "m3", "m4", "m5", "m6"}
 MODULE_BONUS = 1000
@@ -28,6 +28,8 @@ async def get_progress(
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):
+    if not token:
+        token = get_token_from_request(request)
     user = await get_current_user(db, token)
     progress = await get_course_progress(db, user.id)
     return progress
@@ -45,6 +47,8 @@ async def complete_module_endpoint(
     db: AsyncSession = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):
+    if not token:
+        token = get_token_from_request(request)
     if module_id not in VALID_MODULES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
