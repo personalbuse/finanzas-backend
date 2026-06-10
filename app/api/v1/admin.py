@@ -11,11 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.rate_limiter import limiter, portfolio_rate_limit
 from app.db.session import get_db
 from app.models.base import AdminLog, CacheData, Portfolio, SystemConfig, Transaction, User
+from app.services.auth_service import get_token_from_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login", auto_error=False)
 
 
 class RoleRequest(BaseModel):
@@ -32,6 +33,7 @@ class ConfigUpdateRequest(BaseModel):
 
 
 async def require_admin(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -40,6 +42,14 @@ async def require_admin(
     This ensures that demoted admins lose access immediately, not after JWT expiry.
     """
     from app.services.auth_service import decode_token
+    if not token:
+        try:
+            token = get_token_from_request(request)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No autenticado",
+            )
     try:
         payload = decode_token(token, token_type="access")
     except Exception:
