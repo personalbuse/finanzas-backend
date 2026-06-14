@@ -10,8 +10,9 @@ Run from the backend/ directory.
 import asyncio
 import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -19,10 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.models.base import User
 
 
+def eprint(*args: object, **kwargs: object) -> None:
+    print(*args, file=sys.stderr, **kwargs)
+
+
 async def main(username: str) -> None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        print("ERROR: DATABASE_URL environment variable not set")
+        eprint("ERROR: DATABASE_URL environment variable not set")
         sys.exit(1)
 
     engine = create_async_engine(database_url)
@@ -30,20 +35,20 @@ async def main(username: str) -> None:
         result = await session.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         if not user:
-            print(f"ERROR: User '{username}' not found")
+            eprint(f"ERROR: User '{username}' not found")
             sys.exit(1)
 
         if user.rol == "admin":
-            print(f"User '{username}' is already admin")
+            eprint(f"User '{username}' is already admin")
             return
 
         user.rol = "admin"
         await session.commit()
-        print(f"User '{username}' promoted to admin successfully")
+        eprint(f"User '{username}' promoted to admin successfully")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python scripts/make_admin.py <username>")
+        eprint("Usage: python scripts/make_admin.py <username>")
         sys.exit(1)
     asyncio.run(main(sys.argv[1]))
