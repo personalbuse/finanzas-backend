@@ -659,6 +659,9 @@ async def twofa_setup(
     uri = totp_service.get_provisioning_uri(secret, user.username)
     qr = totp_service.generate_qr_base64(uri)
 
+    user.totp_secret = secret
+    await db.commit()
+
     return TOTPSetupResponse(secret=secret, qr_code=qr, provisioning_uri=uri)
 
 
