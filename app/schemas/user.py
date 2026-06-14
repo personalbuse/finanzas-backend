@@ -174,5 +174,33 @@ class ConvertCurrencyResponse(BaseModel):
     timestamp: str
 
 
+class TOTPSetupResponse(BaseModel):
+    secret: str
+    qr_code: str
+    provisioning_uri: str
+
+class TOTPVerifyRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+
+class TOTPVerifyResponse(BaseModel):
+    enabled: bool
+    backup_codes: list[str]
+
+class TOTPStatusResponse(BaseModel):
+    enabled: bool
+    setup_at: datetime | None = None
+
+class TOTPDisableRequest(BaseModel):
+    password: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=6, max_length=6)
+
+class TOTPLoginVerifyRequest(BaseModel):
+    temp_token: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=1, max_length=12)
+
+class TOTPBackupCodeRequest(BaseModel):
+    temp_token: str = Field(..., min_length=1)
+    backup_code: str = Field(..., min_length=1, max_length=20)
+
 class ErrorDetail(BaseModel):
     detail: str

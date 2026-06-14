@@ -50,3 +50,5 @@ wrapt==2.1.2
 resend==0.5.1
 apscheduler==3.10.4
 fpdf==1.7.2
+pyotp==2.9.0
+qrcode[pil]==7.4.2

@@ -1,7 +1,7 @@
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -10,13 +10,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.rate_limiter import auth_rate_limit, limiter
+from app.core.redis_client import RedisCache
 from app.db.session import get_db
-from app.models.base import PasswordResetToken, User, VerificationCode
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, validate_password_strength
+from app.models.base import BackupCode, PasswordResetToken, User, VerificationCode
+from app.schemas.user import (
+    TOTPBackupCodeRequest,
+    TOTPDisableRequest,
+    TOTPLoginVerifyRequest,
+    TOTPSetupResponse,
+    TOTPStatusResponse,
+    TOTPVerifyRequest,
+    TOTPVerifyResponse,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+    validate_password_strength,
+)
 from app.services.auth_service import (
+    Admin2FARequiredException,
     authenticate_user,
     create_access_token,
     create_refresh_token,
+    create_temp_token,
+    decode_temp_token,
     decode_token,
     get_current_user,
     get_password_hash,
@@ -26,6 +42,7 @@ from app.services.auth_service import (
 )
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
+from app.services.totp_service import totp_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -255,6 +272,21 @@ async def login(
             detail="Nombre de usuario o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if user.rol == "admin" and not user.totp_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Los administradores deben configurar 2FA antes de acceder al sistema",
+        )
+
+    if user.totp_enabled:
+        temp_token = create_temp_token(user)
+        temp_jti = decode_temp_token(temp_token).get("jti")
+        await RedisCache.set(f"temp_token:{temp_jti}", user.username, ttl_seconds=30)
+        return {
+            "requires_2fa": True,
+            "temp_token": temp_token,
+        }
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -605,6 +637,226 @@ async def verify_code(
     await db.commit()
 
     return {"message": "Código verificado exitosamente", "verified": True}
+
+
+@router.post(
+    "/2fa/setup",
+    tags=["2fa"],
+)
+@limiter.limit("10/minute")
+async def twofa_setup(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    if not token:
+        token = get_token_from_request(request)
+    user = await get_current_user(db, token)
+
+    if user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA ya está activado")
+
+    secret = totp_service.generate_secret()
+    uri = totp_service.get_provisioning_uri(secret, user.username)
+    qr = totp_service.generate_qr_base64(uri)
+
+    return TOTPSetupResponse(secret=secret, qr_code=qr, provisioning_uri=uri)
+
+
+@router.post(
+    "/2fa/verify",
+    tags=["2fa"],
+)
+@limiter.limit("10/minute")
+async def twofa_verify(
+    request: Request,
+    body: TOTPVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    if not token:
+        token = get_token_from_request(request)
+    user = await get_current_user(db, token)
+
+    if not user.totp_secret:
+        raise HTTPException(status_code=400, detail="Primero debes generar el setup")
+
+    if not totp_service.verify_totp(user.totp_secret, body.code):
+        raise HTTPException(status_code=400, detail="Código inválido")
+
+    backup_codes_raw = totp_service.generate_backup_codes(8)
+    for bc in backup_codes_raw:
+        db.add(BackupCode(user_id=user.id, hashed_code=bc["hashed"]))
+    user.totp_enabled = True
+    user.totp_setup_at = datetime.now(UTC)
+    await db.commit()
+
+    return TOTPVerifyResponse(
+        enabled=True,
+        backup_codes=[bc["raw"] for bc in backup_codes_raw],
+    )
+
+
+@router.post(
+    "/2fa/disable",
+    tags=["2fa"],
+)
+@limiter.limit("5/minute")
+async def twofa_disable(
+    request: Request,
+    body: TOTPDisableRequest,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    if not token:
+        token = get_token_from_request(request)
+    user = await get_current_user(db, token)
+
+    if not user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA no está activado")
+
+    if not verify_password(body.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Contraseña incorrecta")
+
+    if not totp_service.verify_totp(user.totp_secret, body.code):
+        raise HTTPException(status_code=400, detail="Código TOTP inválido")
+
+    result = await db.execute(select(BackupCode).where(BackupCode.user_id == user.id))
+    for bc in result.scalars().all():
+        await db.delete(bc)
+
+    user.totp_secret = None
+    user.totp_enabled = False
+    user.totp_setup_at = None
+    await db.commit()
+
+    return {"message": "2FA desactivado exitosamente"}
+
+
+@router.get(
+    "/2fa/status",
+    response_model=TOTPStatusResponse,
+    tags=["2fa"],
+)
+async def twofa_status(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    if not token:
+        token = get_token_from_request(request)
+    user = await get_current_user(db, token)
+
+    return TOTPStatusResponse(enabled=user.totp_enabled, setup_at=user.totp_setup_at)
+
+
+async def _complete_login(user: User, response: Response, db: AsyncSession) -> dict:
+    access_token = create_access_token(
+        data={"sub": user.username, "user_id": user.id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    refresh_token = create_refresh_token(user)
+    _set_auth_cookies(response, access_token, refresh_token)
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "initial_balance": float(user.initial_balance),
+            "current_balance": float(user.current_balance),
+            "completed_courses": user.completed_courses or 0,
+            "rol": user.rol,
+            "created_at": str(user.created_at),
+        },
+    }
+
+
+@router.post(
+    "/2fa/login-verify",
+    tags=["2fa"],
+)
+@limiter.limit("5/minute")
+async def twofa_login_verify(
+    request: Request,
+    response: Response,
+    body: TOTPLoginVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_temp_token(body.temp_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+
+    temp_jti = payload.get("jti")
+    stored = await RedisCache.get(f"temp_token:{temp_jti}")
+    if not stored:
+        raise HTTPException(status_code=401, detail="Token temporal ya utilizado o expirado")
+
+    username = payload.get("sub")
+    stmt = select(User).where(User.username == username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.totp_enabled or not user.totp_secret:
+        raise HTTPException(status_code=401, detail="Usuario no válido o 2FA no configurado")
+
+    if not totp_service.verify_totp(user.totp_secret, body.code):
+        raise HTTPException(status_code=400, detail="Código TOTP inválido")
+
+    await RedisCache.delete(f"temp_token:{temp_jti}")
+    return await _complete_login(user, response, db)
+
+
+@router.post(
+    "/2fa/login-backup",
+    tags=["2fa"],
+)
+@limiter.limit("5/minute")
+async def twofa_login_backup(
+    request: Request,
+    response: Response,
+    body: TOTPBackupCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_temp_token(body.temp_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+
+    temp_jti = payload.get("jti")
+    stored = await RedisCache.get(f"temp_token:{temp_jti}")
+    if not stored:
+        raise HTTPException(status_code=401, detail="Token temporal ya utilizado o expirado")
+
+    username = payload.get("sub")
+    stmt_user = select(User).where(User.username == username)
+    result = await db.execute(stmt_user)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.totp_enabled:
+        raise HTTPException(status_code=401, detail="Usuario no válido o 2FA no configurado")
+
+    hashed = totp_service.hash_backup_code(body.backup_code)
+    stmt_bc = select(BackupCode).where(
+        BackupCode.user_id == user.id,
+        BackupCode.hashed_code == hashed,
+        not BackupCode.used,
+    )
+    result_bc = await db.execute(stmt_bc)
+    bc = result_bc.scalar_one_or_none()
+
+    if not bc:
+        raise HTTPException(status_code=400, detail="Código de respaldo inválido o ya utilizado")
+
+    bc.used = True
+    await db.commit()
+
+    await RedisCache.delete(f"temp_token:{temp_jti}")
+    return await _complete_login(user, response, db)
 
 
 @router.post(

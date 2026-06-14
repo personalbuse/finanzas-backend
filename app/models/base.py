@@ -33,11 +33,15 @@ class User(Base):
     rol = Column(String(20), default="inversor", index=True)
     is_active = Column(Boolean, default=True, index=True)
     password_version = Column(Integer, default=0, nullable=False)
+    totp_secret = Column(String(32), nullable=True)
+    totp_enabled = Column(Boolean, default=False, nullable=False)
+    totp_setup_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     portfolios = relationship("Portfolio", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")
+    backup_codes = relationship("BackupCode", back_populates="user", cascade="all, delete-orphan")
 
 
 class Portfolio(Base):
@@ -104,6 +108,18 @@ class PasswordResetToken(Base):
     created_at = Column(DateTime, default=func.now())
 
     user = relationship("User")
+
+
+class BackupCode(Base):
+    __tablename__ = "backup_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    hashed_code = Column(String(64), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    user = relationship("User", back_populates="backup_codes")
 
 
 class VerificationCode(Base):

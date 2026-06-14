@@ -87,6 +87,26 @@ def decode_token(token: str, token_type: str = "access") -> dict:
     return payload
 
 
+def create_temp_token(user: User) -> str:
+    """Short-lived single-use token for 2FA challenge (30 seconds)."""
+    return create_access_token(
+        data={"sub": user.username, "user_id": user.id, "purpose": "2fa"},
+        expires_delta=timedelta(seconds=30),
+        token_type="temp",
+    )
+
+
+def decode_temp_token(token: str) -> dict:
+    return decode_token(token, token_type="temp")
+
+
+class Admin2FARequiredException(UnauthorizedException):
+    def __init__(self):
+        super().__init__(
+            detail="Los administradores deben configurar 2FA antes de acceder al sistema"
+        )
+
+
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> User | None:
     stmt = select(User).where(User.username == username.lower())
     result = await db.execute(stmt)
