@@ -273,10 +273,27 @@ async def login(
         )
 
     if user.rol == "admin" and not user.totp_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Los administradores deben configurar 2FA antes de acceder al sistema",
+        access_token = create_access_token(
+            data={"sub": user.username, "user_id": user.id},
         )
+        refresh_token = create_refresh_token(user)
+        _set_auth_cookies(response, access_token, refresh_token)
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "requires_2fa_setup": True,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "initial_balance": float(user.initial_balance),
+                "current_balance": float(user.current_balance),
+                "completed_courses": user.completed_courses or 0,
+                "rol": user.rol,
+                "created_at": str(user.created_at),
+            },
+        }
 
     if user.totp_enabled:
         temp_token = create_temp_token(user)
