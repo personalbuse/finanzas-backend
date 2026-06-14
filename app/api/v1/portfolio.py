@@ -101,6 +101,10 @@ async def buy_stock(
 ):
     current_user_id = current_user.id
     symbol = buy_data.symbol.upper()
+    logger.info("=== DEBUG buy_stock start ===")
+    logger.info(f"current_user type: {type(current_user).__name__}, id: {current_user_id}")
+    logger.info(f"symbol={symbol}, quantity={buy_data.quantity}")
+    logger.info(f"DB session id: {id(db)}, in_transaction: {db.in_transaction()}")
 
     try:
         async with FinnhubService() as service:
@@ -116,6 +120,10 @@ async def buy_stock(
 
     price_per_unit = float(stock_data["price"])
     total_cost = float(buy_data.quantity) * price_per_unit
+    logger.info(f"price_per_unit={price_per_unit}, total_cost={total_cost}")
+    logger.info(f"DB in_transaction before begin(): {db.in_transaction()}")
+
+    logger.info(f"About to enter db.begin(). Session state: in_transaction={db.in_transaction()}, is_active={db.is_active if hasattr(db, 'is_active') else 'N/A'}")
 
     try:
         async with db.begin():
@@ -165,8 +173,8 @@ async def buy_stock(
         }
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("Error al realizar compra")
+    except Exception as e:
+        logger.exception(f"=== DEBUG buy_stock EXCEPTION === type={type(e).__name__}, msg={str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -188,6 +196,11 @@ async def sell_stock(
     current_user_id = current_user.id
     symbol = sell_data.symbol.upper()
 
+    logger.info("=== DEBUG sell_stock start ===")
+    logger.info(f"current_user type: {type(current_user).__name__}, id: {current_user_id}")
+    logger.info(f"symbol={symbol}, quantity={sell_data.quantity}")
+    logger.info(f"DB session id: {id(db)}, in_transaction: {db.in_transaction()}")
+
     try:
         async with FinnhubService() as service:
             stock_data = await service.get_stock_price(symbol, db)
@@ -203,6 +216,10 @@ async def sell_stock(
 
     price_per_unit = float(stock_data["price"])
     total_gain = float(sell_data.quantity) * price_per_unit
+    logger.info(f"price_per_unit={price_per_unit}, total_gain={total_gain}")
+    logger.info(f"DB in_transaction before begin(): {db.in_transaction()}")
+
+    logger.info(f"About to enter db.begin(). Session state: in_transaction={db.in_transaction()}, is_active={db.is_active if hasattr(db, 'is_active') else 'N/A'}")
 
     try:
         async with db.begin():
@@ -260,8 +277,8 @@ async def sell_stock(
         }
     except HTTPException:
         raise
-    except Exception:
-        logger.exception("Error al realizar venta")
+    except Exception as e:
+        logger.exception(f"=== DEBUG sell_stock EXCEPTION === type={type(e).__name__}, msg={str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -697,21 +697,27 @@ async def twofa_verify(
         token = get_token_from_request(request)
     user = await get_current_user(db, token)
 
+    logger.info("=== DEBUG twofa_verify start ===")
+    logger.info(f"user.id={user.id}, user.totp_secret={'SET' if user.totp_secret else 'NOT SET'}, user.totp_enabled={user.totp_enabled}")
+
     if not user.totp_secret:
         raise HTTPException(status_code=400, detail="Primero debes generar el setup")
 
+    logger.info(f"Verifying TOTP code, code_len={len(body.code)}, secret_len={len(user.totp_secret) if user.totp_secret else 0}")
     if not totp_service.verify_totp(user.totp_secret, body.code):
         raise HTTPException(status_code=400, detail="Código inválido")
 
     try:
         backup_codes_raw = totp_service.generate_backup_codes(8)
+        logger.info(f"backup_codes_raw count: {len(backup_codes_raw)}")
         for bc in backup_codes_raw:
             db.add(BackupCode(user_id=user.id, hashed_code=bc["hashed"]))
         user.totp_enabled = True
         user.totp_setup_at = datetime.now(UTC)
+        logger.info(f"About to commit. totp_setup_at value: {datetime.now(UTC)}, type: {type(datetime.now(UTC))}")
         await db.commit()
     except Exception as e:
-        logger.error("Error al verificar 2FA para usuario %s: %s", user.username, str(e), exc_info=True)
+        logger.exception(f"=== DEBUG twofa_verify COMMIT FAILED === {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno al configurar 2FA")
 
     return TOTPVerifyResponse(

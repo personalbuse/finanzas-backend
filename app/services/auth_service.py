@@ -124,6 +124,7 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> U
 async def get_current_user(db: AsyncSession, token: str, token_type: str = "access") -> User:
     payload = decode_token(token, token_type=token_type)
     username: str = payload.get("sub")
+    logger.info(f"=== DEBUG get_current_user === token_sub={payload.get('sub')}, type={type(token_type)}")
     if username is None:
         raise UnauthorizedException("Invalid credentials")
 
@@ -139,6 +140,7 @@ async def get_current_user(db: AsyncSession, token: str, token_type: str = "acce
 
     token_pv = payload.get("password_version", 0)
     user_pv = getattr(user, "password_version", 0)
+    logger.info(f"User fetched: id={user.id}, username={user.username}, is_active={user.is_active}, session_id={id(db)}")
     if token_pv != user_pv:
         raise UnauthorizedException("Token revoked (password changed)")
 
