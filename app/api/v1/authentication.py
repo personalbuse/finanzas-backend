@@ -686,12 +686,16 @@ async def twofa_verify(
     if not totp_service.verify_totp(user.totp_secret, body.code):
         raise HTTPException(status_code=400, detail="Código inválido")
 
-    backup_codes_raw = totp_service.generate_backup_codes(8)
-    for bc in backup_codes_raw:
-        db.add(BackupCode(user_id=user.id, hashed_code=bc["hashed"]))
-    user.totp_enabled = True
-    user.totp_setup_at = datetime.now(UTC)
-    await db.commit()
+    try:
+        backup_codes_raw = totp_service.generate_backup_codes(8)
+        for bc in backup_codes_raw:
+            db.add(BackupCode(user_id=user.id, hashed_code=bc["hashed"]))
+        user.totp_enabled = True
+        user.totp_setup_at = datetime.now(UTC)
+        await db.commit()
+    except Exception as e:
+        logger.error("Error al verificar 2FA para usuario %s: %s", user.username, str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail="Error interno al configurar 2FA")
 
     return TOTPVerifyResponse(
         enabled=True,
