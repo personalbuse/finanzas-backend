@@ -31,8 +31,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_backup_codes_id"), "backup_codes", ["id"])
-    op.create_index(op.f("ix_backup_codes_user_id"), "backup_codes", ["user_id"])
 
 
 def downgrade() -> None:
