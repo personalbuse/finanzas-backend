@@ -27,7 +27,6 @@ from app.schemas.user import (
     validate_password_strength,
 )
 from app.services.auth_service import (
-    Admin2FARequiredException,
     authenticate_user,
     create_access_token,
     create_refresh_token,
