@@ -99,6 +99,7 @@ async def buy_stock(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),
 ):
+    current_user_id = current_user.id
     symbol = buy_data.symbol.upper()
 
     try:
@@ -120,7 +121,7 @@ async def buy_stock(
         async with db.begin():
             result = await db.execute(
                 select(User)
-                .where(User.id == current_user.id)
+                .where(User.id == current_user_id)
                 .with_for_update()
             )
             user = result.scalar_one_or_none()
@@ -184,6 +185,7 @@ async def sell_stock(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),
 ):
+    current_user_id = current_user.id
     symbol = sell_data.symbol.upper()
 
     try:
@@ -206,7 +208,7 @@ async def sell_stock(
         async with db.begin():
             result = await db.execute(
                 select(User)
-                .where(User.id == current_user.id)
+                .where(User.id == current_user_id)
                 .with_for_update()
             )
             user = result.scalar_one_or_none()
