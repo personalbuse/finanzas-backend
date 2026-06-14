@@ -21,7 +21,7 @@ from app.models.base import User
 
 
 def eprint(*args: object, **kwargs: object) -> None:
-    print(*args, file=sys.stderr, **kwargs)
+    print(*args, file=sys.stderr, **kwargs)  # noqa: T201
 
 
 async def main(username: str) -> None:
