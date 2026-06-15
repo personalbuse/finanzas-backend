@@ -1,7 +1,7 @@
 import hashlib
 import logging
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -713,8 +713,8 @@ async def twofa_verify(
         for bc in backup_codes_raw:
             db.add(BackupCode(user_id=user.id, hashed_code=bc["hashed"]))
         user.totp_enabled = True
-        user.totp_setup_at = datetime.now(UTC)
-        logger.info(f"About to commit. totp_setup_at value: {datetime.now(UTC)}, type: {type(datetime.now(UTC))}")
+        user.totp_setup_at = datetime.utcnow()
+        logger.info(f"About to commit. totp_setup_at value: {datetime.utcnow()}, type: {type(datetime.utcnow())}")
         await db.commit()
     except Exception as e:
         logger.exception(f"=== DEBUG twofa_verify COMMIT FAILED === {str(e)}")
