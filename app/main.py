@@ -16,6 +16,7 @@ from app.core.redis_client import close_redis_client
 
 MAINTENANCE_SKIP_PATHS = {
     "/health", "/", "/api/v1/login", "/api/v1/register-init", "/api/v1/register-verify",
+    "/api/v1/resend-code",
     "/api/v1/forgot-password", "/api/v1/reset-password",
 }
 

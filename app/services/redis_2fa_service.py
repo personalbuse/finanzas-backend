@@ -73,6 +73,7 @@ class Redis2FAService:
 
             if new_attempts >= MAX_ATTEMPTS:
                 await client.delete(code_key)
+                await client.delete(attempts_key)
                 raise MaxAttemptsException("Demasiados intentos fallidos. Solicita un nuevo código.")
 
             remaining = MAX_ATTEMPTS - new_attempts

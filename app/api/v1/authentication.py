@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import Redis2FAException
 from app.core.rate_limiter import auth_rate_limit, limiter
 from app.core.redis_client import RedisCache
 from app.db.session import get_db
@@ -242,6 +243,11 @@ async def resend_code(
         sent = await email_service.send_verification_code(email, code)
         if not sent:
             raise RuntimeError("Verification email was not sent")
+    except Redis2FAException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception:
         logger.exception("Error resending verification code")
         raise HTTPException(
