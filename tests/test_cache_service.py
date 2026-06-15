@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from app.services.cache_service import CacheService
 
 
