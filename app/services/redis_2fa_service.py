@@ -61,10 +61,12 @@ class Redis2FAService:
         code_key = f"register:code:{email}"
         attempts_key = f"register:attempts:{email}"
 
-        stored_code = await client.get(code_key)
+        stored_code_raw = await client.get(code_key)
 
-        if not stored_code:
+        if not stored_code_raw:
             raise InvalidCodeException("El código ha expirado. Solicita uno nuevo.")
+
+        stored_code = stored_code_raw.decode("utf-8")
 
         if stored_code != code:
             attempts = await client.get(attempts_key) or "0"
