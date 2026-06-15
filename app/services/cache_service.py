@@ -29,23 +29,28 @@ class CacheService:
 
         from sqlalchemy import and_, select
 
+        from app.db.session import AsyncSessionLocal
         from app.models.base import CacheData
 
-        stmt = select(CacheData).where(
-            and_(
-                CacheData.key == key,
-                CacheData.expires_at > datetime.utcnow()
-            )
-        )
-        result = await session.execute(stmt)
-        cache_entry = result.scalar_one_or_none()
+        try:
+            async with AsyncSessionLocal() as cache_session:
+                stmt = select(CacheData).where(
+                    and_(
+                        CacheData.key == key,
+                        CacheData.expires_at > datetime.utcnow()
+                    )
+                )
+                result = await cache_session.execute(stmt)
+                cache_entry = result.scalar_one_or_none()
 
-        if cache_entry:
-            import json
-            try:
-                return json.loads(cache_entry.value)
-            except (json.JSONDecodeError, TypeError):
-                return cache_entry.value
+                if cache_entry:
+                    import json
+                    try:
+                        return json.loads(cache_entry.value)
+                    except (json.JSONDecodeError, TypeError):
+                        return cache_entry.value
+        except Exception:
+            logger.exception(f"Error reading cache for {key}")
 
         return None
 
@@ -72,6 +77,7 @@ class CacheService:
 
         from sqlalchemy import select
 
+        from app.db.session import AsyncSessionLocal
         from app.models.base import CacheData
 
         if isinstance(value, (dict, list)):
@@ -82,26 +88,26 @@ class CacheService:
         expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
 
         try:
-            stmt = select(CacheData).where(CacheData.key == key)
-            result = await session.execute(stmt)
-            cache_entry = result.scalar_one_or_none()
+            async with AsyncSessionLocal() as cache_session:
+                stmt = select(CacheData).where(CacheData.key == key)
+                result = await cache_session.execute(stmt)
+                cache_entry = result.scalar_one_or_none()
 
-            if cache_entry:
-                cache_entry.value = value_str
-                cache_entry.expires_at = expires_at
-            else:
-                cache_entry = CacheData(
-                    key=key,
-                    value=value_str,
-                    expires_at=expires_at
-                )
-                session.add(cache_entry)
+                if cache_entry:
+                    cache_entry.value = value_str
+                    cache_entry.expires_at = expires_at
+                else:
+                    cache_entry = CacheData(
+                        key=key,
+                        value=value_str,
+                        expires_at=expires_at
+                    )
+                    cache_session.add(cache_entry)
 
-            await session.commit()
-            logger.info(f"PostgreSQL cache set for {key}")
-            return True
+                await cache_session.commit()
+                logger.info(f"PostgreSQL cache set for {key}")
+                return True
         except Exception:
-            await session.rollback()
             logger.exception(f"Error writing to cache for {key}")
             return False
 
@@ -114,17 +120,23 @@ class CacheService:
 
         from sqlalchemy import select
 
+        from app.db.session import AsyncSessionLocal
         from app.models.base import CacheData
 
-        stmt = select(CacheData).where(CacheData.key == key)
-        result = await session.execute(stmt)
-        cache_entry = result.scalar_one_or_none()
+        try:
+            async with AsyncSessionLocal() as cache_session:
+                stmt = select(CacheData).where(CacheData.key == key)
+                result = await cache_session.execute(stmt)
+                cache_entry = result.scalar_one_or_none()
 
-        if cache_entry:
-            await session.delete(cache_entry)
-            await session.commit()
-            return True
-        return False
+                if cache_entry:
+                    await cache_session.delete(cache_entry)
+                    await cache_session.commit()
+                    return True
+                return False
+        except Exception:
+            logger.exception(f"Error deleting cache key {key}")
+            return False
 
     @staticmethod
     async def invalidate_prefix(session, prefix: str) -> bool:
@@ -133,9 +145,15 @@ class CacheService:
 
         from sqlalchemy import delete
 
+        from app.db.session import AsyncSessionLocal
         from app.models.base import CacheData
 
-        stmt = delete(CacheData).where(CacheData.key.startswith(prefix + ":"))
-        result = await session.execute(stmt)
-        await session.commit()
-        return result.rowcount > 0
+        try:
+            async with AsyncSessionLocal() as cache_session:
+                stmt = delete(CacheData).where(CacheData.key.startswith(prefix + ":"))
+                result = await cache_session.execute(stmt)
+                await cache_session.commit()
+                return result.rowcount > 0
+        except Exception:
+            logger.exception(f"Error invalidating cache prefix {prefix}")
+            return False

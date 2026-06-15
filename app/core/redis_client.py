@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import redis.asyncio as redis
@@ -7,12 +8,18 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _redis_client: redis.Redis | None = None
+_redis_lock = asyncio.Lock()
 
 
 async def get_redis_client() -> redis.Redis:
     global _redis_client
 
-    if _redis_client is None:
+    if _redis_client is not None:
+        return _redis_client
+
+    async with _redis_lock:
+        if _redis_client is not None:
+            return _redis_client
         try:
             redis_url = getattr(settings, 'REDIS_URL', None)
             if not redis_url:

@@ -21,7 +21,7 @@ engine = create_async_engine(
     pool_recycle=3600,
     pool_timeout=30,
 )
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, expire_on_rollback=False)
 
 
 async def get_db() -> AsyncSession:
