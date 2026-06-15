@@ -18,7 +18,7 @@ class CacheService:
         return f"{prefix}:{':'.join(str(p) for p in parts)}"
 
     @staticmethod
-    async def get(session, prefix: str, *parts: str) -> Any | None:
+    async def get(_session, prefix: str, *parts: str) -> Any | None:
         key = CacheService.generate_key(prefix, *parts)
 
         if REDIS_AVAILABLE:
@@ -55,7 +55,7 @@ class CacheService:
         return None
 
     @staticmethod
-    async def set(session, prefix: str, *parts: str,
+    async def set(_session, prefix: str, *parts: str,
                   value: Any, ttl_seconds: int = 300) -> bool:
         key = CacheService.generate_key(prefix, *parts)
 
@@ -112,7 +112,7 @@ class CacheService:
             return False
 
     @staticmethod
-    async def delete(session, prefix: str, *parts: str) -> bool:
+    async def delete(_session, prefix: str, *parts: str) -> bool:
         key = CacheService.generate_key(prefix, *parts)
 
         if REDIS_AVAILABLE:
@@ -139,7 +139,7 @@ class CacheService:
             return False
 
     @staticmethod
-    async def invalidate_prefix(session, prefix: str) -> bool:
+    async def invalidate_prefix(_session, prefix: str) -> bool:
         if REDIS_AVAILABLE:
             logger.info(f"Invalidating Redis keys with prefix: {prefix}")
 
