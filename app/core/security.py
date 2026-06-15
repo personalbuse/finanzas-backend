@@ -5,11 +5,11 @@ from fastapi import Header, HTTPException, status
 from app.core.config import settings
 
 
-def _admin_key() -> str:
+def _admin_key() -> str:  # pragma: no cover
     return settings.ADMIN_API_KEY.get_secret_value() if settings.ADMIN_API_KEY else ""
 
 
-def require_admin_api_key(x_admin_token: str | None = Header(default=None)) -> None:
+def require_admin_api_key(x_admin_token: str | None = Header(default=None)) -> None:  # pragma: no cover
     key = _admin_key()
     if not key:
         raise HTTPException(

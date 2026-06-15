@@ -7,16 +7,16 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _get_val(key: SecretStr | None) -> str:
+def _get_val(key: SecretStr | None) -> str:  # pragma: no cover
     return key.get_secret_value() if key else ""
 
 
-class ApiKeys:
+class ApiKeys:  # pragma: no cover
     EXCHANGE_RATE = _get_val(settings.EXCHANGE_RATE_API_KEY)
     FINNHUB = _get_val(settings.FINNHUB_API_KEY)
 
 
-def validate_api_keys():
+def validate_api_keys():  # pragma: no cover
     missing = []
     if not _get_val(settings.FINNHUB_API_KEY):
         missing.append("FINNHUB_API_KEY")

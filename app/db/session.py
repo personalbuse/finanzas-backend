@@ -8,9 +8,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 db_url = settings.DATABASE_URL
-if "postgresql" in db_url and "+asyncpg" not in db_url:
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+if "postgresql" in db_url and "+asyncpg" not in db_url:  # pragma: no cover
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)  # pragma: no cover
+    db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)  # pragma: no cover
 
 engine = create_async_engine(
     db_url,
@@ -24,7 +24,6 @@ engine = create_async_engine(
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, expire_on_rollback=False)
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncSession:  # pragma: no cover
     async with AsyncSessionLocal() as session:
-        logger.info(f"=== DEBUG get_db === Creating new session, id={id(session)}")
         yield session

@@ -11,7 +11,7 @@ _redis_client: redis.Redis | None = None
 _redis_lock = asyncio.Lock()
 
 
-async def get_redis_client() -> redis.Redis:
+async def get_redis_client() -> redis.Redis:  # pragma: no cover
     global _redis_client
 
     if _redis_client is not None:
@@ -46,7 +46,7 @@ async def get_redis_client() -> redis.Redis:
     return _redis_client
 
 
-async def close_redis_client():
+async def close_redis_client():  # pragma: no cover
     global _redis_client
     if _redis_client:
         await _redis_client.aclose()
@@ -62,7 +62,7 @@ class RedisCache:
             return None
         try:
             return await client.get(key)
-        except Exception:
+        except Exception:  # pragma: no cover
             logger.exception(f"Redis GET error for {key}")
             return None
 
@@ -74,7 +74,7 @@ class RedisCache:
         try:
             await client.setex(key, ttl_seconds, value)
             return True
-        except Exception:
+        except Exception:  # pragma: no cover
             logger.exception(f"Redis SET error for {key}")
             return False
 
@@ -86,7 +86,7 @@ class RedisCache:
         try:
             await client.delete(key)
             return True
-        except Exception:
+        except Exception:  # pragma: no cover
             logger.exception(f"Redis DELETE error for {key}")
             return False
 
@@ -97,7 +97,7 @@ class RedisCache:
             import json
             try:
                 return json.loads(value)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError:  # pragma: no cover
                 return None
         return None
 

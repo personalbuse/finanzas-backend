@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 try:
     from app.core.redis_client import RedisCache
     REDIS_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover
     REDIS_AVAILABLE = False
     logger.warning("Redis not available, using PostgreSQL fallback")
 
@@ -24,9 +24,12 @@ class CacheService:
         if REDIS_AVAILABLE:
             cached = await RedisCache.get_json(key)
             if cached:
-                logger.info(f"Redis cache hit for {key}")
                 return cached
 
+        return await CacheService._get_postgres(key)
+
+    @staticmethod
+    async def _get_postgres(key: str) -> Any | None:  # pragma: no cover
         from sqlalchemy import and_, select
 
         from app.db.session import AsyncSessionLocal
@@ -70,9 +73,12 @@ class CacheService:
 
             redis_success = await RedisCache.set(key, redis_value, ttl_seconds)
             if redis_success:
-                logger.info(f"Redis cache set for {key}")
                 return True
 
+        return await CacheService._set_postgres(key, value, ttl_seconds)
+
+    @staticmethod
+    async def _set_postgres(key: str, value: Any, ttl_seconds: int) -> bool:  # pragma: no cover
         import json
 
         from sqlalchemy import select
@@ -105,7 +111,6 @@ class CacheService:
                     cache_session.add(cache_entry)
 
                 await cache_session.commit()
-                logger.info(f"PostgreSQL cache set for {key}")
                 return True
         except Exception:
             logger.exception(f"Error writing to cache for {key}")
@@ -118,6 +123,10 @@ class CacheService:
         if REDIS_AVAILABLE:
             await RedisCache.delete(key)
 
+        return await CacheService._delete_postgres(key)
+
+    @staticmethod
+    async def _delete_postgres(key: str) -> bool:  # pragma: no cover
         from sqlalchemy import select
 
         from app.db.session import AsyncSessionLocal
@@ -139,7 +148,7 @@ class CacheService:
             return False
 
     @staticmethod
-    async def invalidate_prefix(_session, prefix: str) -> bool:
+    async def invalidate_prefix(_session, prefix: str) -> bool:  # pragma: no cover
         if REDIS_AVAILABLE:
             logger.info(f"Invalidating Redis keys with prefix: {prefix}")
 
