@@ -879,7 +879,7 @@ async def twofa_login_backup(
     stmt_bc = select(BackupCode).where(
         BackupCode.user_id == user.id,
         BackupCode.hashed_code == hashed,
-        not BackupCode.used,
+        BackupCode.used == False,
     )
     result_bc = await db.execute(stmt_bc)
     bc = result_bc.scalar_one_or_none()
