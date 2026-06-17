@@ -754,7 +754,15 @@ async def twofa_disable(
         raise HTTPException(status_code=400, detail="Contraseña incorrecta")
 
     if not totp_service.verify_totp(user.totp_secret, body.code):
-        raise HTTPException(status_code=400, detail="Código TOTP inválido")
+        hashed = totp_service.hash_backup_code(body.code)
+        stmt_bc = select(BackupCode).where(
+            BackupCode.user_id == user.id,
+            BackupCode.hashed_code == hashed,
+            ~BackupCode.used,
+        )
+        result_bc = await db.execute(stmt_bc)
+        if not result_bc.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Código TOTP o de respaldo inválido")
 
     result = await db.execute(select(BackupCode).where(BackupCode.user_id == user.id))
     for bc in result.scalars().all():
