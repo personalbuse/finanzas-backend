@@ -19,9 +19,14 @@ class TOTPService:
 
     @staticmethod
     def get_provisioning_uri(secret: str, username: str) -> str:
+        from app.core.config import settings
+        extra = {}
+        if settings.FRONTEND_URL:
+            extra["image"] = f"{settings.FRONTEND_URL.rstrip('/')}/logo-2fa.png"
         return pyotp.totp.TOTP(secret).provisioning_uri(
             name=username,
             issuer_name=TOTPService.ISSUER,
+            **extra,
         )
 
     @staticmethod
