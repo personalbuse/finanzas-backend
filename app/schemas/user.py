@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 USERNAME_PATTERN = r'^[a-z0-9_.-]{3,50}$'
+COL_PHONE_REGEX = r'^\+57(3\d{9})$'
 
 
 def validate_password_strength(password: str) -> str:
@@ -39,6 +40,15 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=12, max_length=100)
     initial_balance: float | None = Field(default=10000.00, ge=1000)
+    phone_number: str | None = Field(None, pattern=COL_PHONE_REGEX)
+    register_channel: str = Field(default="email", pattern=r'^(email|sms)$')
+
+    @field_validator('register_channel')
+    @classmethod
+    def validate_register_channel(cls, v: str, info) -> str:
+        if v == "sms" and not info.data.get("phone_number"):
+            raise ValueError("Se requiere phone_number cuando register_channel es sms")
+        return v
 
     @field_validator('username')
     @classmethod
@@ -56,6 +66,8 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     current_password: str | None = Field(None, min_length=1)
     new_password: str | None = Field(None, min_length=12, max_length=100)
+    phone_number: str | None = Field(None, pattern=COL_PHONE_REGEX)
+    login_2fa_method: str | None = Field(None, pattern=r'^(authenticator|sms)$')
 
     @field_validator('username')
     @classmethod
@@ -80,6 +92,9 @@ class UserResponse(BaseModel):
     current_balance: float
     completed_courses: int = 0
     rol: str = "inversor"
+    phone_number: str | None = None
+    register_channel: str = "email"
+    login_2fa_method: str = "authenticator"
     created_at: datetime
 
     class Config:
@@ -201,6 +216,15 @@ class TOTPLoginVerifyRequest(BaseModel):
 class TOTPBackupCodeRequest(BaseModel):
     temp_token: str = Field(..., min_length=1)
     backup_code: str = Field(..., min_length=1, max_length=20)
+
+class SMSSendCodeRequest(BaseModel):
+    temp_token: str = Field(..., min_length=1)
+
+
+class SMSLoginVerifyRequest(BaseModel):
+    temp_token: str = Field(..., min_length=1)
+    code: str = Field(..., min_length=6, max_length=6)
+
 
 class ErrorDetail(BaseModel):
     detail: str

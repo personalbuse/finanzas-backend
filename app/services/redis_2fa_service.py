@@ -16,7 +16,14 @@ TTL_SECONDS = 600  # 10 minutos
 
 
 class Redis2FAService:
-    async def save_registration_data(self, email: str, username: str, hashed_password: str) -> bool:
+    async def save_registration_data(
+        self,
+        email: str,
+        username: str,
+        hashed_password: str,
+        phone_number: str | None = None,
+        register_channel: str = "email",
+    ) -> bool:
         client = await get_redis_client()
         if not client:
             return False
@@ -26,7 +33,9 @@ class Redis2FAService:
             value = json.dumps({
                 "username": username,
                 "hashed_password": hashed_password,
-                "attempts": 0
+                "phone_number": phone_number,
+                "register_channel": register_channel,
+                "attempts": 0,
             })
             await client.setex(key, TTL_SECONDS, value)
             return True

@@ -15,6 +15,8 @@ from app.core.redis_client import RedisCache
 from app.db.session import get_db
 from app.models.base import BackupCode, PasswordResetToken, User, VerificationCode
 from app.schemas.user import (
+    SMSLoginVerifyRequest,
+    SMSSendCodeRequest,
     TOTPBackupCodeRequest,
     TOTPDisableRequest,
     TOTPLoginVerifyRequest,
@@ -42,6 +44,7 @@ from app.services.auth_service import (
 )
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
+from app.services.sms_service import sms_service
 from app.services.totp_service import totp_service
 
 router = APIRouter()
@@ -118,7 +121,9 @@ async def register_init(
     saved = await redis_2fa_service.save_registration_data(
         user_data.email,
         user_data.username,
-        hashed_password
+        hashed_password,
+        phone_number=user_data.phone_number,
+        register_channel=user_data.register_channel,
     )
 
     if not saved:
@@ -130,9 +135,12 @@ async def register_init(
 
     try:
         code = await redis_2fa_service.generate_and_save_code(user_data.email)
-        sent = await email_service.send_verification_code(user_data.email, code)
+        if user_data.register_channel == "sms":
+            sent = await sms_service.send_code(user_data.phone_number)
+        else:
+            sent = await email_service.send_verification_code(user_data.email, code)
         if not sent:
-            raise RuntimeError("Verification email was not sent")
+            raise RuntimeError("Verification message was not sent")
     except Exception:
         logger.exception("Error sending registration verification code")
         raise HTTPException(
@@ -140,9 +148,10 @@ async def register_init(
             detail="Error al enviar el código. Intenta de nuevo."
         )
 
+    channel_msg = "celular" if user_data.register_channel == "sms" else "correo"
     return {
-        "message": "Código de verificación enviado a tu correo",
-        "email": user_data.email
+        "message": f"Código de verificación enviado a tu {channel_msg}",
+        "email": user_data.email,
     }
 
 
@@ -174,12 +183,17 @@ async def register_verify(
         )
 
     initial_balance = float(reg_data.get("initial_balance", 10000.00))
+    register_channel = reg_data.get("register_channel", "email")
+    phone_number = reg_data.get("phone_number")
     user = User(
         username=reg_data["username"],
         email=email,
         hashed_password=reg_data["hashed_password"],
         initial_balance=initial_balance,
         current_balance=initial_balance,
+        phone_number=phone_number,
+        phone_confirmed=register_channel == "sms",
+        register_channel=register_channel,
     )
     db.add(user)
     await db.commit()
@@ -208,6 +222,9 @@ async def register_verify(
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
             "rol": user.rol,
+            "phone_number": user.phone_number,
+            "register_channel": user.register_channel,
+            "login_2fa_method": user.login_2fa_method,
             "created_at": str(user.created_at),
         },
     }
@@ -238,11 +255,17 @@ async def resend_code(
             detail="No hay registro pendiente para este email. Por favor regístrate de nuevo."
         )
 
+    register_channel = reg_data.get("register_channel", "email")
+    phone_number = reg_data.get("phone_number")
+
     try:
         code = await redis_2fa_service.generate_and_save_code(email)
-        sent = await email_service.send_verification_code(email, code)
+        if register_channel == "sms":
+            sent = await sms_service.send_code(phone_number)
+        else:
+            sent = await email_service.send_verification_code(email, code)
         if not sent:
-            raise RuntimeError("Verification email was not sent")
+            raise RuntimeError("Verification message was not sent")
     except Redis2FAException as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -255,7 +278,8 @@ async def resend_code(
             detail="Error al reenviar el código. Intenta de nuevo."
         )
 
-    return {"message": "Nuevo código enviado a tu correo"}
+    channel_msg = "celular" if register_channel == "sms" else "correo"
+    return {"message": f"Nuevo código enviado a tu {channel_msg}"}
 
 
 @router.post(
@@ -297,17 +321,27 @@ async def login(
                 "current_balance": float(user.current_balance),
                 "completed_courses": user.completed_courses or 0,
                 "rol": user.rol,
+                "phone_number": user.phone_number,
+                "register_channel": user.register_channel,
+                "login_2fa_method": user.login_2fa_method,
                 "created_at": str(user.created_at),
             },
         }
 
+    methods = []
     if user.totp_enabled:
+        methods.append("authenticator")
+    if user.login_2fa_method == "sms" and user.phone_number and user.phone_confirmed:
+        methods.append("sms")
+
+    if methods:
         temp_token = create_temp_token(user)
         temp_jti = decode_temp_token(temp_token).get("jti")
         await RedisCache.set(f"temp_token:{temp_jti}", user.username, ttl_seconds=30)
         return {
             "requires_2fa": True,
             "temp_token": temp_token,
+            "methods": methods,
         }
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -331,6 +365,9 @@ async def login(
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
             "rol": user.rol,
+            "phone_number": user.phone_number,
+            "register_channel": user.register_channel,
+            "login_2fa_method": user.login_2fa_method,
             "created_at": str(user.created_at),
         },
     }
@@ -459,6 +496,13 @@ async def update_profile(
             )
         user.hashed_password = get_password_hash(update_data.new_password)
         user.password_version = (user.password_version or 0) + 1
+
+    if update_data.phone_number is not None and update_data.phone_number != user.phone_number:
+        user.phone_number = update_data.phone_number
+        user.phone_confirmed = False
+
+    if update_data.login_2fa_method is not None:
+        user.login_2fa_method = update_data.login_2fa_method
 
     await db.commit()
     await db.refresh(user)
@@ -813,6 +857,9 @@ async def _complete_login(user: User, response: Response, db: AsyncSession) -> d
             "current_balance": float(user.current_balance),
             "completed_courses": user.completed_courses or 0,
             "rol": user.rol,
+            "phone_number": user.phone_number,
+            "register_channel": user.register_channel,
+            "login_2fa_method": user.login_2fa_method,
             "created_at": str(user.created_at),
         },
     }
@@ -897,6 +944,81 @@ async def twofa_login_backup(
 
     bc.used = True
     await db.commit()
+
+    await RedisCache.delete(f"temp_token:{temp_jti}")
+    return await _complete_login(user, response, db)
+
+
+@router.post(
+    "/2fa/send-sms-code",
+    tags=["2fa"],
+)
+@limiter.limit("3/minute")
+async def twofa_send_sms_code(
+    request: Request,
+    body: SMSSendCodeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_temp_token(body.temp_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+
+    temp_jti = payload.get("jti")
+    stored = await RedisCache.get(f"temp_token:{temp_jti}")
+    if not stored:
+        raise HTTPException(status_code=401, detail="Token temporal ya utilizado o expirado")
+
+    username = payload.get("sub")
+    stmt = select(User).where(User.username == username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.phone_number or not user.phone_confirmed:
+        raise HTTPException(status_code=400, detail="Teléfono no configurado o no confirmado")
+
+    sent = await sms_service.send_code(user.phone_number)
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al enviar el código SMS",
+        )
+
+    return {"message": "Código enviado por SMS"}
+
+
+@router.post(
+    "/2fa/login-verify-sms",
+    tags=["2fa"],
+)
+@limiter.limit("5/minute")
+async def twofa_login_verify_sms(
+    request: Request,
+    response: Response,
+    body: SMSLoginVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_temp_token(body.temp_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+
+    temp_jti = payload.get("jti")
+    stored = await RedisCache.get(f"temp_token:{temp_jti}")
+    if not stored:
+        raise HTTPException(status_code=401, detail="Token temporal ya utilizado o expirado")
+
+    username = payload.get("sub")
+    stmt = select(User).where(User.username == username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.phone_number:
+        raise HTTPException(status_code=400, detail="Teléfono no configurado")
+
+    valid = await sms_service.verify_code(user.phone_number, body.code)
+    if not valid:
+        raise HTTPException(status_code=400, detail="Código SMS inválido o expirado")
 
     await RedisCache.delete(f"temp_token:{temp_jti}")
     return await _complete_login(user, response, db)

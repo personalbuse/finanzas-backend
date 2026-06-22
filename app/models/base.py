@@ -36,6 +36,10 @@ class User(Base):
     totp_secret = Column(String(32), nullable=True)
     totp_enabled = Column(Boolean, default=False, nullable=False)
     totp_setup_at = Column(DateTime, nullable=True)
+    phone_number = Column(String(20), nullable=True)
+    phone_confirmed = Column(Boolean, default=False, nullable=False)
+    register_channel = Column(String(10), default="email", nullable=False)
+    login_2fa_method = Column(String(15), default="authenticator", nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: SecretStr | None = None
     EMAIL_FROM: str = ""
     FRONTEND_URL: str = ""
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: SecretStr | None = None
+    TWILIO_VERIFY_SERVICE_SID: str = ""
     ADMIN_API_KEY: SecretStr | None = None
     ENABLE_STARTUP_PRELOAD: bool = True
     TRUST_PROXY: bool = False
