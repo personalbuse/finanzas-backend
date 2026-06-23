@@ -39,6 +39,8 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=12, max_length=100)
     initial_balance: float | None = Field(default=10000.00, ge=1000)
+    phone_number: str | None = Field(default=None, max_length=20)
+    delivery_method: str = Field(default="email", pattern=r"^(email|sms)$")
 
     @field_validator('username')
     @classmethod
@@ -54,6 +56,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     username: str | None = Field(None, min_length=3, max_length=50)
     email: EmailStr | None = None
+    phone_number: str | None = Field(None, max_length=20)
     current_password: str | None = Field(None, min_length=1)
     new_password: str | None = Field(None, min_length=12, max_length=100)
 
@@ -76,6 +79,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    phone_number: str | None = None
     initial_balance: float
     current_balance: float
     completed_courses: int = 0

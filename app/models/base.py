@@ -33,6 +33,7 @@ class User(Base):
     rol = Column(String(20), default="inversor", index=True)
     is_active = Column(Boolean, default=True, index=True)
     password_version = Column(Integer, default=0, nullable=False)
+    phone_number = Column(String(20), nullable=True)
     totp_secret = Column(String(32), nullable=True)
     totp_enabled = Column(Boolean, default=False, nullable=False)
     totp_setup_at = Column(DateTime, nullable=True)

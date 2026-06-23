@@ -42,6 +42,7 @@ from app.services.auth_service import (
 )
 from app.services.email_service import email_service
 from app.services.redis_2fa_service import redis_2fa_service
+from app.services.sms_service import sms_service
 from app.services.totp_service import totp_service
 
 router = APIRouter()
@@ -78,6 +79,12 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 def _clear_auth_cookies(response: Response) -> None:
     for cookie in ("access_token", "refresh_token"):
         response.delete_cookie(key=cookie, path="/")
+
+
+def _mask_phone(phone: str) -> str:
+    if len(phone) >= 4:
+        return f"******{phone[-4:]}"
+    return "******"
 
 
 def hash_reset_token(token: str) -> str:
@@ -118,7 +125,9 @@ async def register_init(
     saved = await redis_2fa_service.save_registration_data(
         user_data.email,
         user_data.username,
-        hashed_password
+        hashed_password,
+        phone_number=user_data.phone_number,
+        delivery_method=user_data.delivery_method,
     )
 
     if not saved:
@@ -130,20 +139,30 @@ async def register_init(
 
     try:
         code = await redis_2fa_service.generate_and_save_code(user_data.email)
-        sent = await email_service.send_verification_code(user_data.email, code)
-        if not sent:
-            raise RuntimeError("Verification email was not sent")
+        if user_data.delivery_method == "sms" and user_data.phone_number:
+            sent = await sms_service.send_otp(user_data.phone_number, code)
+            if not sent:
+                raise RuntimeError("SMS verification was not sent")
+            masked = _mask_phone(user_data.phone_number)
+            return {
+                "message": f"Código de verificación enviado al {masked}",
+                "delivery_method": "sms",
+                "phone_last_digits": masked,
+            }
+        else:
+            sent = await email_service.send_verification_code(user_data.email, code)
+            if not sent:
+                raise RuntimeError("Verification email was not sent")
+            return {
+                "message": "Código de verificación enviado a tu correo",
+                "email": user_data.email,
+            }
     except Exception:
         logger.exception("Error sending registration verification code")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al enviar el código. Intenta de nuevo."
         )
-
-    return {
-        "message": "Código de verificación enviado a tu correo",
-        "email": user_data.email
-    }
 
 
 @router.post(
@@ -178,6 +197,7 @@ async def register_verify(
         username=reg_data["username"],
         email=email,
         hashed_password=reg_data["hashed_password"],
+        phone_number=reg_data.get("phone_number"),
         initial_balance=initial_balance,
         current_balance=initial_balance,
     )
@@ -240,9 +260,20 @@ async def resend_code(
 
     try:
         code = await redis_2fa_service.generate_and_save_code(email)
-        sent = await email_service.send_verification_code(email, code)
-        if not sent:
-            raise RuntimeError("Verification email was not sent")
+        delivery_method = reg_data.get("delivery_method", "email")
+        phone_number = reg_data.get("phone_number")
+
+        if delivery_method == "sms" and phone_number:
+            sent = await sms_service.send_otp(phone_number, code)
+            if not sent:
+                raise RuntimeError("SMS verification was not sent")
+            masked = _mask_phone(phone_number)
+            return {"message": f"Nuevo código enviado al {masked}"}
+        else:
+            sent = await email_service.send_verification_code(email, code)
+            if not sent:
+                raise RuntimeError("Verification email was not sent")
+            return {"message": "Nuevo código enviado a tu correo"}
     except Redis2FAException as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -254,8 +285,6 @@ async def resend_code(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al reenviar el código. Intenta de nuevo."
         )
-
-    return {"message": "Nuevo código enviado a tu correo"}
 
 
 @router.post(
@@ -301,14 +330,23 @@ async def login(
             },
         }
 
-    if user.totp_enabled:
+    if user.totp_enabled or user.phone_number:
         temp_token = create_temp_token(user)
         temp_jti = decode_temp_token(temp_token).get("jti")
         await RedisCache.set(f"temp_token:{temp_jti}", user.username, ttl_seconds=30)
-        return {
+        available_methods = []
+        if user.totp_enabled:
+            available_methods.append("totp")
+        if user.phone_number:
+            available_methods.append("sms")
+        result = {
             "requires_2fa": True,
             "temp_token": temp_token,
+            "available_methods": available_methods,
         }
+        if user.phone_number:
+            result["phone_last_digits"] = _mask_phone(user.phone_number)
+        return result
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -793,7 +831,70 @@ async def twofa_status(
     return TOTPStatusResponse(enabled=user.totp_enabled, setup_at=user.totp_setup_at)
 
 
+@router.post(
+    "/2fa/send-otp",
+    tags=["2fa"],
+)
+@limiter.limit("3/minute")
+async def twofa_send_otp(
+    request: Request,
+    response: Response,
+    temp_token: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        payload = decode_temp_token(temp_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+
+    temp_jti = payload.get("jti")
+    stored = await RedisCache.get(f"temp_token:{temp_jti}")
+    if not stored:
+        raise HTTPException(status_code=401, detail="Token temporal ya utilizado o expirado")
+
+    username = payload.get("sub")
+    stmt = select(User).where(User.username == username)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.phone_number:
+        raise HTTPException(status_code=400, detail="No hay número de teléfono registrado")
+
+    code = f"{secrets.randbelow(900000) + 100000}"
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    stmt_del = select(VerificationCode).where(
+        VerificationCode.user_id == user.id,
+        VerificationCode.code_type == "login_sms",
+        not VerificationCode.used,
+    )
+    result_del = await db.execute(stmt_del)
+    old_codes = result_del.scalars().all()
+    for old_code in old_codes:
+        old_code.used = True
+
+    verification = VerificationCode(
+        user_id=user.id,
+        code=code,
+        code_type="login_sms",
+        expires_at=expires_at,
+    )
+    db.add(verification)
+    await db.commit()
+
+    sent = await sms_service.send_otp(user.phone_number, code)
+    if not sent:
+        logger.error("SMS OTP was not sent for login")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al enviar el código SMS. Intenta de nuevo."
+        )
+
+    return {"message": f"Código enviado al {_mask_phone(user.phone_number)}"}
+
+
 async def _complete_login(user: User, response: Response, db: AsyncSession) -> dict:
+
     access_token = create_access_token(
         data={"sub": user.username, "user_id": user.id},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -844,14 +945,37 @@ async def twofa_login_verify(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user or not user.totp_enabled or not user.totp_secret:
-        raise HTTPException(status_code=401, detail="Usuario no válido o 2FA no configurado")
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no válido")
 
-    if not totp_service.verify_totp(user.totp_secret, body.code):
-        raise HTTPException(status_code=400, detail="Código TOTP inválido")
+    # Try TOTP first
+    if user.totp_enabled and user.totp_secret and totp_service.verify_totp(user.totp_secret, body.code):
+        await RedisCache.delete(f"temp_token:{temp_jti}")
+        return await _complete_login(user, response, db)
 
-    await RedisCache.delete(f"temp_token:{temp_jti}")
-    return await _complete_login(user, response, db)
+    # Try SMS OTP from VerificationCode table
+    stmt_code = select(VerificationCode).where(
+        VerificationCode.user_id == user.id,
+        VerificationCode.code == body.code,
+        VerificationCode.code_type == "login_sms",
+        not VerificationCode.used,
+    )
+    result_code = await db.execute(stmt_code)
+    verification = result_code.scalar_one_or_none()
+
+    if verification and verification.expires_at >= datetime.utcnow():
+        if verification.attempts >= 3:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Demasiados intentos. Solicita un nuevo código.",
+            )
+        verification.attempts = (verification.attempts or 0) + 1
+        verification.used = True
+        await db.commit()
+        await RedisCache.delete(f"temp_token:{temp_jti}")
+        return await _complete_login(user, response, db)
+
+    raise HTTPException(status_code=400, detail="Código inválido o expirado")
 
 
 @router.post(
