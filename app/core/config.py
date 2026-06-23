@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: SecretStr | None = None
     ENABLE_STARTUP_PRELOAD: bool = True
     TRUST_PROXY: bool = False
-    SMS_GATEWAY_URL: str = "http://sms-gateway:8080"
+    SMS_GATEWAY_URL: str = "http://100.86.146.66:8080"
     SMS_TIMEOUT: int = 10
     COOKIE_DOMAIN: str = ""
     COOKIE_SECURE: bool = False
