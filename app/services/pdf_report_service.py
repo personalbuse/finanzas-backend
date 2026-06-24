@@ -27,7 +27,8 @@ class PDFReport(FPDF):
 def generate_portfolio_pdf(
     user_data: dict[str, Any],
     portfolio: list[dict[str, Any]],
-    exchange_rate: float
+    exchange_rate: float,
+    sig_data: dict | None = None,
 ) -> bytes:
     pdf = PDFReport()
     pdf.add_page()
@@ -125,7 +126,31 @@ def generate_portfolio_pdf(
     pdf.set_text_color(150, 150, 150)
     pdf.cell(0, 10, 'Este reporte es generado con fines educativos para la materia de Finanzas Internacionales.', 0, 1, 'C')
 
-    return pdf.output(dest='S').encode('latin-1')
+    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+
+    if sig_data:
+        try:
+            sig_footer = (
+                f"\n% --- CERTIFICADO DE FIRMA DIGITAL ---\n"
+                f"% El hash SHA-256 de este documento es:\n"
+                f"% {sig_data['hash_hex']}\n"
+                f"% Firma digital (Base64):\n"
+                f"% {sig_data['signature_b64']}\n"
+                f"% Certificado serial: {sig_data['cert_serial']}\n"
+                f"% Fecha de firma: {sig_data['timestamp']}\n"
+                f"% Emisor: {sig_data['cert_subject']}\n"
+                f"% X-Hash:{sig_data['hash_hex']}\n"
+                f"% X-Signature-B64:{sig_data['signature_b64']}\n"
+                f"% X-Timestamp:{sig_data['timestamp']}\n"
+                f"% X-Cert-Serial:{sig_data['cert_serial']}\n"
+                f"% X-Signature-End\n"
+            )
+            pdf_bytes = pdf_bytes + sig_footer.encode('ascii')
+            logger.info("Firma digital incrustada en el PDF")
+        except Exception:
+            logger.exception("Error incrustando firma en PDF, se entrega sin metadata")
+
+    return pdf_bytes
 
 
 async def generate_report(db, user_id: int):
@@ -193,7 +218,28 @@ async def generate_report(db, user_id: int):
     }
 
     loop = asyncio.get_event_loop()
+
+    sig_data = None
+    try:
+        from app.services.pdf_signature_service import PDFSignatureService
+        sig_service = PDFSignatureService()
+        content_bytes = await loop.run_in_executor(
+            None, generate_portfolio_pdf, user_data, portfolio_list, exchange_rate, None
+        )
+        sig_data = sig_service.sign_pdf(content_bytes)
+        if sig_data:
+            logger.info("PDF firmado digitalmente: hash=%s", sig_data["hash_hex"][:16])
+        else:
+            logger.warning("PDF generado SIN firma digital (servicio devolvio None)")
+    except Exception:
+        logger.exception("Error en firma digital, generando PDF sin firma")
+        sig_data = None
+
     pdf_bytes = await loop.run_in_executor(
-        None, generate_portfolio_pdf, user_data, portfolio_list, exchange_rate
+        None, generate_portfolio_pdf, user_data, portfolio_list, exchange_rate, sig_data
     )
-    return pdf_bytes
+    logger.info(
+        "Reporte PDF generado: user=%s stocks=%d firmado=%s",
+        user_data.get("username"), len(portfolio_list), sig_data is not None,
+    )
+    return pdf_bytes, sig_data

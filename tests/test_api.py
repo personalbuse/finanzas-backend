@@ -530,7 +530,7 @@ class TestPortfolio:
 
     @pytest.mark.asyncio
     async def test_portfolio_report(self, investor_client: AsyncClient, mock_db_session):
-        with patch("app.services.pdf_report_service.generate_report", AsyncMock(return_value=b"%PDF-mock")):
+        with patch("app.services.pdf_report_service.generate_report", AsyncMock(return_value=(b"%PDF-mock", None))):
             response = await investor_client.get("/api/v1/portfolio/report")
             assert response.status_code == 200
             assert response.headers["content-type"] == "application/pdf"

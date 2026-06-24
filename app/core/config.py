@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     SMS_TIMEOUT: int = 10
     COOKIE_DOMAIN: str = ""
     COOKIE_SECURE: bool = False
+    PDF_KEYS_DIR: str = "/app/keys/pdf_ca"
 
     @field_validator("SECRET_KEY", mode="before")
     @classmethod

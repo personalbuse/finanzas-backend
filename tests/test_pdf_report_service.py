@@ -79,8 +79,9 @@ class TestPDFReportService:
         ))
 
         with patch("app.services.pdf_report_service.generate_portfolio_pdf", MagicMock(return_value=b"%PDF-mock")):
-            result = await generate_report(mock_db, 1)
+            result, sig_data = await generate_report(mock_db, 1)
             assert result == b"%PDF-mock"
+            assert sig_data is None
 
     @pytest.mark.asyncio
     async def test_generate_report_with_portfolios(self):
@@ -113,8 +114,9 @@ class TestPDFReportService:
             with patch("app.services.finnhub_service.FinnhubService.__aenter__") as mock_enter:
                 mock_enter.return_value = mock_finnhub
                 with patch("app.services.pdf_report_service.generate_portfolio_pdf", MagicMock(return_value=b"%PDF-data")):
-                    result = await generate_report(mock_db, 1)
+                    result, sig_data = await generate_report(mock_db, 1)
                     assert result == b"%PDF-data"
+                    assert sig_data is None
 
     @pytest.mark.asyncio
     async def test_generate_report_price_fetch_error(self):
@@ -147,8 +149,9 @@ class TestPDFReportService:
                 mock_rate_enter.return_value = mock_rate
 
                 with patch("app.services.pdf_report_service.generate_portfolio_pdf", MagicMock(return_value=b"%PDF-error")):
-                    result = await generate_report(mock_db, 1)
+                    result, sig_data = await generate_report(mock_db, 1)
                     assert result == b"%PDF-error"
+                    assert sig_data is None
 
     def test_pdf_report_class_header_footer(self):
         from app.services.pdf_report_service import PDFReport

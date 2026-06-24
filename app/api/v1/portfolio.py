@@ -1,7 +1,8 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -343,19 +344,93 @@ async def get_portfolio_report(
     try:
         from app.services.pdf_report_service import generate_report
 
-        pdf_bytes = await generate_report(db, current_user.id)
+        pdf_bytes, sig_data = await generate_report(db, current_user.id)
 
-        from fastapi.responses import Response
+        headers = {
+            "Content-Disposition": f"attachment; filename=portafolio_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.pdf"
+        }
+        if sig_data:
+            headers["X-Signature"] = sig_data["signature_b64"]
+            headers["X-Signature-Timestamp"] = sig_data["timestamp"]
+            headers["X-Signature-Cert"] = sig_data["cert_serial"]
+
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=portafolio_{current_user.username}_{datetime.now().strftime('%Y%m%d')}.pdf"
-            }
+            headers=headers,
+        )
+    except ValueError as e:
+        logger.warning("Reporte PDF fallo: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
         )
     except Exception:
         logger.exception("Error generando PDF")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al generar el reporte PDF"
+        )
+
+
+@router.post(
+    "/portfolio/report/verify",
+    tags=["portafolio"],
+)
+@limiter.limit("10/minute")
+async def verify_pdf_signature(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo se aceptan archivos PDF",
+        )
+
+    try:
+        content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El archivo esta vacio",
+            )
+
+        from app.services.pdf_signature_service import PDFSignatureService
+        sig_service = PDFSignatureService()
+
+        sig_data = sig_service.extract_signature_from_pdf(content)
+        if not sig_data:
+            return {
+                "valid": False,
+                "message": "El PDF no contiene una firma digital valida de este sistema",
+                "details": None,
+            }
+
+        hash_marker = b"\n% X-Hash:"
+        meta_start = content.find(hash_marker)
+        if meta_start > 0:
+            content_body = content[:meta_start]
+        else:
+            content_body = content
+
+        result = sig_service.verify_pdf(content_body, sig_data["signature_b64"])
+
+        return {
+            "valid": result["valid"],
+            "message": result["message"],
+            "details": {
+                "hash": result["hash_hex"],
+                "cert_serial": result["cert_serial"],
+                "cert_subject": result["cert_subject"],
+                "signature_timestamp": sig_data["timestamp"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error verificando firma PDF")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al verificar la firma del PDF",
         )
