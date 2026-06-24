@@ -1,11 +1,11 @@
 import base64
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.x509.oid import NameOID
 
 from app.core.config import settings
@@ -39,11 +39,11 @@ class PDFSignatureService:
         if self._key_path.exists() and self._cert_path.exists():
             logger.info("Cargando llaves existentes desde %s", self._keys_dir)
             try:
-                with open(self._key_path, "rb") as f:
+                with self._key_path.open("rb") as f:
                     self._private_key = serialization.load_pem_private_key(
                         f.read(), password=None
                     )
-                with open(self._cert_path, "rb") as f:
+                with self._cert_path.open("rb") as f:
                     self._certificate = x509.load_pem_x509_certificate(f.read())
                 logger.info(
                     "Llaves cargadas: cert serial=%s",
@@ -69,7 +69,7 @@ class PDFSignatureService:
                 x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Simulador de Inversiones FIUP"),
                 x509.NameAttribute(NameOID.COMMON_NAME, "Simulador de Inversiones FIUP CA"),
             ])
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             self._certificate = (
                 x509.CertificateBuilder()
                 .subject_name(subject)
@@ -135,7 +135,7 @@ class PDFSignatureService:
                 "signature_b64": signature_b64,
                 "cert_serial": str(self._certificate.serial_number),
                 "cert_subject": self._certificate.subject.rfc4514_string(),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except FileNotFoundError:
             logger.warning("Llaves no encontradas al firmar, PDF sin firma")

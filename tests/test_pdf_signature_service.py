@@ -112,7 +112,7 @@ class TestPDFSignatureService:
     def test_sign_pdf_returns_none_when_keys_missing(self, monkeypatch):
         monkeypatch.setattr(
             "app.services.pdf_signature_service.PDFSignatureService._ensure_keys",
-            lambda self: (_ for _ in ()).throw(FileNotFoundError()),
+            lambda _: (_ for _ in ()).throw(FileNotFoundError()),
         )
         service = _get_service()
         result = service.sign_pdf(b"test")
@@ -131,7 +131,6 @@ class TestPDFSignatureService:
         assert "RSA" in info["algorithm"]
 
     def test_get_certificate_info_no_keys(self, monkeypatch):
-        import types
         def _noop_ensure(self):
             return None
         monkeypatch.setattr(
