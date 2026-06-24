@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r appuser && useradd -r -g appuser -u 1000 appuser \
-    && mkdir -p /app && chown -R appuser:appuser /app
+    && mkdir -p /app && chown -R appuser:appuser /app \
+    && mkdir -p /app/keys/pdf_ca && chown -R appuser:appuser /app/keys
 
 COPY --from=builder /wheels /wheels
 COPY --from=builder /build/requirements.txt .
