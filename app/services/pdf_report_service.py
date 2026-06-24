@@ -121,10 +121,14 @@ def generate_portfolio_pdf(
         pdf.cell(col_widths[5], 7, f'{"+" if stock_profit >= 0 else ""}${stock_profit:,.2f}', 1, 1, 'R')
         pdf.set_text_color(50, 50, 50)
 
-    pdf.ln(10)
+    pdf.ln(8)
     pdf.set_font('Arial', 'I', 8)
     pdf.set_text_color(150, 150, 150)
     pdf.cell(0, 10, 'Este reporte es generado con fines educativos para la materia de Finanzas Internacionales.', 0, 1, 'C')
+
+    pdf.set_font('Arial', 'I', 7)
+    pdf.set_text_color(180, 180, 180)
+    pdf.cell(0, 5, 'Firmado digitalmente · Validar en finsimup.app/verify-signature', 0, 1, 'C')
 
     pdf_bytes = pdf.output(dest='S').encode('latin-1')
 
