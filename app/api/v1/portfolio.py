@@ -407,8 +407,8 @@ async def verify_pdf_signature(
                 "details": None,
             }
 
-        hash_marker = b"\n% X-Hash:"
-        meta_start = content.find(hash_marker)
+        meta_marker = b"\n% --- CERTIFICADO DE FIRMA DIGITAL ---"
+        meta_start = content.find(meta_marker)
         if meta_start > 0:
             content_body = content[:meta_start]
         else:
